@@ -243,6 +243,7 @@ export function helpText(harnessIds: readonly string[], style: Ink = plainInk())
   ${name} ${command('login')}                 sign in and store your API key
   ${name} ${command('status')}                the pool, your budget, your tier, your model
   ${name} ${command('logout')}                forget the stored key
+  ${name} ${command('reset')} [harness]       take the pool out of a harness's own config files
 
   ${name} ${command('<harness>')} [args…]     launch a harness against the pool
   ${name} ${command('run')} <cmd…>            export the variables and run anything

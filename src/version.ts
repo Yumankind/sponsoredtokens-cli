@@ -6,4 +6,4 @@
  * `tests/version.test.ts` asserts this constant equals `package.json`'s, so the duplication cannot
  * drift silently.
  */
-export const VERSION = '0.3.1';
+export const VERSION = '0.3.2';

@@ -36,6 +36,7 @@ import { clearConfig, readConfig, readModelPlan, resolveKey, writeConfig, writeM
 import { createSponsorCheckout, fetchSponsorBoard, fetchStatus, pollDevice, startDevice } from './api.ts';
 import { mergeCodexConfig } from './codex-config.ts';
 import { mergeJsonConfig } from './json-config.ts';
+import { providerPath, removeCodexProvider, removeJsonPath } from './reset.ts';
 import { resolveExecutable, runChild } from './exec.ts';
 import { banner, createSpinner, errInk, money, outInk, row, spinnerFrames, suggestHarness, type Ink } from './ui.ts';
 import { boardLines, fetchBoard, EMPTY_BOARD, type Board } from './pool.ts';
@@ -350,6 +351,72 @@ function readIfExists(file: string): string | null {
  * the path instead. Launching anyway would run the harness against whatever provider it had before,
  * which is exactly the silent wrong answer this CLI exists to avoid.
  */
+/**
+ * `reset [harness]`: the inverse of `applyConfigs` and of OpenClaw's `config set`, for one harness
+ * or for all of them. Nothing else to undo: the variables a launch exports die with the child, so
+ * `claude`, `cursor`, `hermes`, `junie` and `t3` run plainly were never on the pool. The stored key
+ * is `logout`'s business and is left alone here, on purpose — resetting a harness is not signing out.
+ */
+async function reset(ep: Endpoints, only: string | null): Promise<number> {
+  if (only !== null && !isHarness(only)) {
+    note(`  \`${only}\` is not a harness this CLI knows. One of: ${HARNESS_IDS.join(', ')}.`);
+    return 1;
+  }
+  const ctx: PlanContext = { key: '', endpoints: ep, model: 'sponsored/x/y', paid: false, modelOverride: null };
+  let removed = 0;
+  let envOnly: string[] = [];
+  for (const id of only ? [only] : HARNESS_IDS) {
+    const plan = planFor(id, ctx);
+    if (!plan) continue;
+    if (plan.configs.length === 0 && plan.preCommands.length === 0) {
+      envOnly.push(id);
+      continue;
+    }
+    for (const config of plan.configs) {
+      const file = join(homedir(), ...config.segments);
+      const existing = readIfExists(file);
+      if (existing === null) continue;
+      if (config.format === 'codex-toml') {
+        const edit = removeCodexProvider(existing);
+        if (!edit.changed) continue;
+        writeFileSync(file, edit.content);
+        note(`  Removed the sponsoredtokens provider from ${config.label}.`);
+        removed += 1;
+        continue;
+      }
+      const path = providerPath(config.patch ?? {});
+      const result = path ? removeJsonPath(existing, path) : { kind: 'unchanged' as const };
+      if (result.kind === 'unparseable') {
+        note(`  ${config.label} could not be parsed as JSON, so it was left alone. Remove the "sponsoredtokens" provider from it yourself.`);
+        continue;
+      }
+      if (result.kind === 'unchanged') continue;
+      writeFileSync(file, result.content);
+      note(`  Removed the sponsoredtokens provider from ${config.label}.`);
+      removed += 1;
+    }
+    // OpenClaw wrote its provider with its own `config set`; its own `config unset` takes it out.
+    for (const args of plan.preCommands) {
+      if (args[0] !== 'config' || args[1] !== 'set' || !args[2]) continue;
+      const binary = resolveExecutable(plan.bin, { platform: process.platform, env: process.env });
+      if (!binary) continue;
+      const code = await runChild(binary, ['config', 'unset', args[2]], process.env, 'ignore');
+      if (code === 0) {
+        note(`  Removed ${args[2]} from ${plan.bin}'s config.`);
+        removed += 1;
+      }
+    }
+  }
+  if (removed === 0) note(only ? `  Nothing of ours in ${only}'s config.` : '  Nothing of ours in any harness config.');
+  if (envOnly.length > 0 && only !== null) {
+    note(`  ${only} keeps nothing on disk: the pool's variables live only in the launched process. Run \`${only}\` plainly and it is on its own settings.`);
+  } else if (envOnly.length > 0) {
+    note(`  ${envOnly.join(', ')} keep nothing on disk: run them plainly and they are on their own settings.`);
+  }
+  note('  Your stored key is untouched; `sponsoredtokens logout` forgets it.');
+  return 0;
+}
+
 function applyConfigs(plan: LaunchPlan, ep: Endpoints): boolean {
   for (const config of plan.configs) {
     const file = join(homedir(), ...config.segments);
@@ -505,6 +572,7 @@ export async function main(argv: string[]): Promise<number> {
     note(clearConfig() ? `Removed ${file}. Your key on the server is unchanged — rotate it on the account page.` : 'Nothing stored; already signed out.');
     return 0;
   }
+  if (parsed.command === 'reset') return reset(ep, parsed.rest[0] ?? null);
   if (parsed.command === 'login') return login(ep, parsed.quiet);
   if (parsed.command === 'status') return status(ep, parsed.quiet);
   // Sponsoring the pool needs no key: the endpoint is public (see `sponsor` above).
