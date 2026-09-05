@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": "dist",
+    "rootDir": "src",
+
+    // The two that make one set of sources runnable three ways. Imports are written with a `.ts`
+    // extension, so `node --test tests/*.test.ts` (Node 22.18+/24 strips types natively) and
+    // `bun build --compile` both resolve them as-is; `rewriteRelativeImportExtensions` turns them
+    // into `.js` on the way into `dist/`, which is what `npx sponsoredtokens` runs. Without the
+    // rewrite we would have to choose between a build that works and a test run that works.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    // Node's type stripping cannot execute enums, namespaces or parameter properties — it only
+    // ERASES types. This flag makes the compiler refuse that syntax, so a source file cannot become
+    // one that builds but will not run under `node --test`.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
