@@ -80,7 +80,7 @@ there; the version accepted is stored on the sponsor record.
 |---|---|
 | `--amount <n>` | Whole dollars. Default: the top remaining balance on your board plus $5, which is what takes #1 there. Below that board's minimum ($10 global, $10 for each country) or above $100,000 is refused before any request is made |
 | `--audience <a>` | `global` (the default: every board, everywhere) or the countries you want to be seen in — `--audience PT,ES`. See **Global or local** |
-| `--platform <id>` | For a bare `@handle`: `x`, `instagram`, `github`, `linkedin`, `youtube`, `tiktok`, `threads`, `bluesky`. X when not given, and ignored for a URL |
+| `--platform <id>` | For a bare `@handle`: `x`, `github`, `youtube`, `tiktok`, `bluesky`. X when not given, and ignored for a URL |
 | `--json` | One object on stdout and nothing else; the wordmark and the closing note move to stderr. Errors are `{ "error", "code" }` on stdout with exit 1 |
 | `--no-open` | Print the link and the QR; do not open a browser. A browser is never opened without a terminal anyway |
 | `--quiet` | Only the four facts: target, amount, rank, link |

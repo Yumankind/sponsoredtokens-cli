@@ -310,8 +310,8 @@ sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
                     ${GROUP_NAMES.slice(7).join(', ')}
                     Any number of countries; naming every one of them is a
                     global sponsorship, at the global minimum, and it says so
-  ${command('--platform <id>')}   for a bare @handle — x, instagram, github, linkedin, youtube,
-                    tiktok, threads, bluesky. X when not given
+  ${command('--platform <id>')}   for a bare @handle — x, github, youtube, tiktok, bluesky.
+                    X when not given
   ${command('--json')}            one object on stdout, nothing else. For an agent
   ${command('--no-open')}         print the link and the QR code; do not open a browser
 

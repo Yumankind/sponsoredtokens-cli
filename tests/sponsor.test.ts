@@ -51,10 +51,12 @@ test('TERMS_VERSION matches the site’s, which matches terms.md', () => {
   assert.equal(TERMS_VERSION, /^Version:\s*(.+)$/m.exec(terms)![1]!.trim());
 });
 
-test('PLATFORM_IDS matches the worker’s table, in the same order', () => {
+test('PLATFORM_IDS matches the worker’s OFFERED platforms, in the same order', () => {
+  // The worker keeps three more in its full table for sponsors already carrying them (Instagram,
+  // Threads, LinkedIn — unreadable from a server, so no longer sold); the CLI offers what is sold.
   const source = readFileSync(join(REPO, 'worker', 'src', 'sponsored', 'platforms.ts'), 'utf8');
-  const block = /export const PLATFORM_IDS = \[([^\]]+)\]/.exec(source);
-  assert.ok(block, 'worker/src/sponsored/platforms.ts should export a PLATFORM_IDS array');
+  const block = /export const OFFERED_PLATFORM_IDS = \[([^\]]+)\]/.exec(source);
+  assert.ok(block, 'worker/src/sponsored/platforms.ts should export an OFFERED_PLATFORM_IDS array');
   const ids = [...block[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]);
   assert.deepEqual([...PLATFORM_IDS], ids);
 });

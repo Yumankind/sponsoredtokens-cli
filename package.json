@@ -1,6 +1,6 @@
 {
   "name": "sponsoredtokens",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Run your coding agent on sponsoredtokens.com — a public pool of AI tokens paid for by sponsors.",
   "type": "module",
   "bin": {

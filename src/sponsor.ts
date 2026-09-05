@@ -42,7 +42,7 @@ export const TERMS_VERSION = '2026-09';
  * MIRRORS `worker/src/sponsored/platforms.ts`'s `PLATFORM_IDS`, which is the authority. Order is
  * that file's, X first because a handle with no platform means X.
  */
-export const PLATFORM_IDS = ['x', 'instagram', 'github', 'linkedin', 'youtube', 'tiktok', 'threads', 'bluesky'] as const;
+export const PLATFORM_IDS = ['x', 'github', 'youtube', 'tiktok', 'bluesky'] as const;
 
 export type PlatformId = (typeof PLATFORM_IDS)[number];
 
