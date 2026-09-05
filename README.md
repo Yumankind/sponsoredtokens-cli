@@ -59,7 +59,8 @@ after `--`, and never inside a `run` command — that argv is yours.
 
 ```sh
 sponsoredtokens sponsor acme.com                       # the amount that takes #1 today
-sponsoredtokens sponsor @acme --platform github --amount 50
+sponsoredtokens sponsor @acme --platform github --amount 250
+sponsoredtokens sponsor acme.com --audience PT,ES      # Portugal and Spain, from $10
 sponsoredtokens sponsor acme.com --json --no-open      # for an agent
 ```
 
@@ -77,7 +78,8 @@ there; the version accepted is stored on the sponsor record.
 
 | | |
 |---|---|
-| `--amount <n>` | Whole dollars. Default: the top remaining balance plus $5, which is what takes #1. Below the pool's minimum ($10) or above $100,000 is refused before any request is made |
+| `--amount <n>` | Whole dollars. Default: the top remaining balance on your board plus $5, which is what takes #1 there. Below that board's minimum ($100 global, $10 local) or above $100,000 is refused before any request is made |
+| `--audience <a>` | `global` (the default: every board, everywhere) or the countries you want to be seen in — `--audience PT,ES`. See **Global or local** |
 | `--platform <id>` | For a bare `@handle`: `x`, `instagram`, `github`, `linkedin`, `youtube`, `tiktok`, `threads`, `bluesky`. X when not given, and ignored for a URL |
 | `--json` | One object on stdout and nothing else; the wordmark and the closing note move to stderr. Errors are `{ "error", "code" }` on stdout with exit 1 |
 | `--no-open` | Print the link and the QR; do not open a browser. A browser is never opened without a terminal anyway |
@@ -87,6 +89,7 @@ there; the version accepted is stored on the sponsor record.
 {
   "target": "https://acme.com",
   "platform": null,
+  "audience": "global",
   "amountCents": 48700,
   "rank": 1,
   "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_live_…",
@@ -98,6 +101,40 @@ there; the version accepted is stored on the sponsor record.
 `payer: "operator"` is the contract: the human who runs the agent is the one who pays the link and
 accepts the terms. **No key is required** — `POST /api/sponsor/checkout` is public. If a key is
 stored it is sent anyway, so the sponsorship can be attributed to that account later.
+
+### Global or local
+
+`--audience` decides which board the sponsorship is on, and every other number follows from it.
+
+```sh
+sponsoredtokens sponsor acme.com                      # global: every board, from $100
+sponsoredtokens sponsor acme.com --audience PT,ES     # the local boards of PT and ES, from $10
+sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
+```
+
+```
+  Sponsor   https://acme.com
+  Amount    $50
+  Rank      #1 — the top spot on the local board of PT
+  Pay       https://checkout.stripe.com/c/pay/cs_live_…
+```
+
+A **global** sponsor is on every board there is, and on the home page for everybody: $100 minimum. A
+**local** sponsor is on the local boards of the countries they named and nowhere else, and is drawn
+for the pool's tasks that come from those countries: $10 minimum. A local sponsor still appears on
+the global board too, ranked by balance like anyone else. The audience is set at payment, and the
+only way to change it is to recharge with a different one.
+
+Country codes are ISO-3166-1 alpha-2, in any case, de-duplicated and sorted before they are sent:
+`--audience pt,es,PT` is `["ES","PT"]`. Twelve group names stand for a list of codes and can be
+mixed with plain ones — `eu`, `eea`, `dach`, `nordics`, `iberia`, `uk-ie`, `north-america`, `latam`,
+`apac`, `middle-east`, `africa`, `english` (`src/countries.ts` writes out exactly what each covers).
+One sponsorship names at most 80 countries; past that, sponsor globally.
+
+Anything else is refused before a Checkout session exists, by name rather than by being dropped: an
+unknown country, an empty entry, `global` mixed with countries, more than 80 of them. The default
+amount, the "#N" and the minimum all come from the board you chose — for `--audience PT,ES` that is
+the local board of **PT**, the first country you named.
 
 The QR code is encoded here, with no dependency (`src/qr.ts`, byte mode, error level L, versions
 1–20). It is drawn only on a colour terminal wide enough for it, and nothing is printed otherwise:
@@ -170,7 +207,8 @@ npm run build    # plain tsc → dist/, which is what `npx sponsoredtokens` runs
 
 Two constants are mirrored from elsewhere in the monorepo and guarded by tests that read the
 original file: `TERMS_VERSION` from `sponsoredtokens-site/src/content/index.ts`, and `PLATFORM_IDS`
-from `worker/src/sponsored/platforms.ts`.
+from `worker/src/sponsored/platforms.ts`. The audience — the two minimums and the twelve groups —
+is the CLI's copy of `docs/sponsoredtokens/audience-contract.md`, which is the file to change first.
 
 Release: bump `package.json` **and** `src/version.ts` (a test fails if they disagree), tag
 `cli-v<version>`, push. `.github/workflows/sponsoredtokens-cli.yml` compiles the five binaries with

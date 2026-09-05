@@ -16,7 +16,8 @@ import { dirname, join } from 'node:path';
 
 import {
   DEFAULT_PLATFORM,
-  FALLBACK_MIN_CENTS,
+  MIN_GLOBAL_CENTS,
+  MIN_LOCAL_CENTS,
   MAX_SPONSOR_CENTS,
   PLATFORM_IDS,
   TERMS_VERSION,
@@ -99,45 +100,46 @@ const BOARD: SponsorBoard = {
   balances: [48_200, 31_500, 22_750],
   total: 13,
   suggestedCents: 48_700,
-  minimumCents: 1_000,
+  minimumCents: MIN_GLOBAL_CENTS,
 };
 
 test('the default is the pool’s suggestion, rounded UP to a whole dollar', () => {
-  assert.equal(resolveAmountCents({ dollars: null, board: { ...BOARD, suggestedCents: 48_712 } }), 48_800);
+  assert.equal(resolveAmountCents({ dollars: null, board: { ...BOARD, suggestedCents: 48_712 }, audience: 'global' }), 48_800);
   assert.equal(wholeDollars(48_700), 48_700);
 });
 
 test('the default still takes #1 after the rounding, which is the point of rounding up', () => {
   const board = { ...BOARD, suggestedCents: 48_712 };
-  const cents = resolveAmountCents({ dollars: null, board }) as number;
+  const cents = resolveAmountCents({ dollars: null, board, audience: 'global' }) as number;
   assert.equal(rankFor(board, cents).position, 1);
 });
 
 test('--amount is whole dollars', () => {
-  assert.equal(resolveAmountCents({ dollars: 50, board: BOARD }), 5_000);
-  const refusal = resolveAmountCents({ dollars: 12.5, board: BOARD });
+  assert.equal(resolveAmountCents({ dollars: 500, board: BOARD, audience: 'global' }), 50_000);
+  const refusal = resolveAmountCents({ dollars: 12.5, board: BOARD, audience: 'global' });
   assert.ok(isRefusal(refusal) && refusal.code === 'invalid_amount');
 });
 
 test('below the minimum and above the ceiling are named refusals, before any request', () => {
-  const low = resolveAmountCents({ dollars: 5, board: BOARD });
+  const low = resolveAmountCents({ dollars: 50, board: BOARD, audience: 'global' });
   assert.ok(isRefusal(low) && low.code === 'amount_below_minimum');
-  assert.match(low.message, /\$10/);
+  assert.match(low.message, /\$100/);
 
-  const high = resolveAmountCents({ dollars: 100_001, board: BOARD });
+  const high = resolveAmountCents({ dollars: 100_001, board: BOARD, audience: 'global' });
   assert.ok(isRefusal(high) && high.code === 'amount_above_maximum');
-  assert.equal(resolveAmountCents({ dollars: 100_000, board: BOARD }), MAX_SPONSOR_CENTS);
+  assert.equal(resolveAmountCents({ dollars: 100_000, board: BOARD, audience: 'global' }), MAX_SPONSOR_CENTS);
 });
 
-test('an unreachable board still takes --amount, against the worker’s own floor', () => {
-  assert.equal(resolveAmountCents({ dollars: 50, board: null }), 5_000);
-  assert.equal(resolveAmountCents({ dollars: 10, board: null }), FALLBACK_MIN_CENTS);
-  const low = resolveAmountCents({ dollars: 9, board: null });
+test('an unreachable board still takes --amount, against the audience’s own floor', () => {
+  assert.equal(resolveAmountCents({ dollars: 500, board: null, audience: 'global' }), 50_000);
+  assert.equal(resolveAmountCents({ dollars: 100, board: null, audience: 'global' }), MIN_GLOBAL_CENTS);
+  const low = resolveAmountCents({ dollars: 99, board: null, audience: 'global' });
   assert.ok(isRefusal(low) && low.code === 'amount_below_minimum');
+  assert.equal(resolveAmountCents({ dollars: 10, board: null, audience: ['PT'] }), MIN_LOCAL_CENTS);
 });
 
 test('an unreachable board with no --amount says so rather than guessing an amount', () => {
-  const refusal = resolveAmountCents({ dollars: null, board: null });
+  const refusal = resolveAmountCents({ dollars: null, board: null, audience: 'global' });
   assert.ok(isRefusal(refusal) && refusal.code === 'leaderboard_unreachable');
 });
 
@@ -162,17 +164,19 @@ test('the label reads as a sentence, and admits when the top ten cannot answer',
 
 // ── The request, the refusals and the JSON ────────────────────────────────────────────────────
 
-test('the body is exactly what the endpoint reads, with the terms accepted', () => {
-  assert.deepEqual(checkoutBody(parseTarget('acme.com', null) as never, 5_000), {
+test('the body is exactly what the endpoint reads, with the terms accepted and the audience named', () => {
+  assert.deepEqual(checkoutBody(parseTarget('acme.com', null) as never, 5_000, 'global'), {
     target: 'https://acme.com',
     amountCents: 5_000,
+    audience: 'global',
     termsVersion: TERMS_VERSION,
     acceptTerms: true,
   });
-  assert.deepEqual(checkoutBody(parseTarget('@acme', 'github') as never, 5_000), {
+  assert.deepEqual(checkoutBody(parseTarget('@acme', 'github') as never, 5_000, ['ES', 'PT']), {
     target: '@acme',
     platform: 'github',
     amountCents: 5_000,
+    audience: ['ES', 'PT'],
     termsVersion: TERMS_VERSION,
     acceptTerms: true,
   });
@@ -210,16 +214,23 @@ test('a body with no url is a refusal, not a crash', () => {
 
 test('the JSON an agent reads names the operator as the payer', () => {
   const target = parseTarget('acme.com', null) as never;
-  const json = sponsorJson(target, 5_000, rankFor(BOARD, 5_000), {
-    checkoutUrl: 'https://checkout.example/x',
-    shortUrl: 'https://sponsoredtokens.com/p/abc',
-    sponsorId: 'sp_1',
-    slug: 'acme.com',
-    amountCents: 5_000,
-  });
+  const json = sponsorJson(
+    target,
+    5_000,
+    rankFor(BOARD, 5_000),
+    {
+      checkoutUrl: 'https://checkout.example/x',
+      shortUrl: 'https://sponsoredtokens.com/p/abc',
+      sponsorId: 'sp_1',
+      slug: 'acme.com',
+      amountCents: 5_000,
+    },
+    'global',
+  );
   assert.deepEqual(json, {
     target: 'https://acme.com',
     platform: null,
+    audience: 'global',
     amountCents: 5_000,
     rank: 4,
     checkoutUrl: 'https://checkout.example/x',

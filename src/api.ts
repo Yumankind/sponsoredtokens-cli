@@ -11,8 +11,10 @@
 import type { Endpoints } from './endpoints.ts';
 import { VERSION } from './version.ts';
 import {
+  GLOBAL_AUDIENCE,
   checkoutResult,
   refusalFrom,
+  type AudienceChoice,
   type CheckoutBody,
   type CheckoutResult,
   type SponsorBoard,
@@ -110,10 +112,20 @@ export async function fetchStatus(ep: Endpoints, token: string): Promise<Account
  * everybody, and a key on a cacheable public read is a key in one more log. Unlike `pool.ts`'s
  * board this is not decoration — it decides the default amount and the rank — but a failure still
  * returns null rather than throwing, because `--amount` makes the command work without it.
+ *
+ * A LOCAL audience reads a DIFFERENT BOARD: `?board=local&country=PT` is the sponsors whose audience
+ * includes Portugal, and nobody else. Its suggestion, its minimum and its rank are the ones a local
+ * sponsor is buying, and quoting the global board's numbers at them would be quoting the price of a
+ * race they are not in.
  */
-export async function fetchSponsorBoard(ep: Endpoints, timeoutMs = 5000): Promise<SponsorBoard | null> {
+export async function fetchSponsorBoard(
+  ep: Endpoints,
+  choice: AudienceChoice = GLOBAL_AUDIENCE,
+  timeoutMs = 5000,
+): Promise<SponsorBoard | null> {
+  const local = choice.board ? `board=local&country=${encodeURIComponent(choice.board)}&` : '';
   try {
-    const res = await fetch(`${ep.api}/leaderboard?sort=remaining`, {
+    const res = await fetch(`${ep.api}/leaderboard?${local}sort=remaining`, {
       headers: { accept: 'application/json', 'user-agent': USER_AGENT },
       signal: AbortSignal.timeout(timeoutMs),
     });

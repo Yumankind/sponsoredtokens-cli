@@ -21,7 +21,9 @@
  * for `run`, parsing stops at the command word.
  */
 import { VERSION } from './version.ts';
-import { banner, plainInk, type Ink } from './ui.ts';
+import { banner, money, plainInk, type Ink } from './ui.ts';
+import { GROUP_NAMES } from './countries.ts';
+import { MIN_GLOBAL_CENTS, MIN_LOCAL_CENTS } from './sponsor.ts';
 
 export interface ParsedArgs {
   /** `login` | `logout` | `status` | a harness id | `run` | null when nothing was given. */
@@ -44,6 +46,8 @@ export interface ParsedArgs {
   amount: number | null;
   /** `sponsor --platform`, for a bare `@handle`. Validated in `sponsor.ts`, not here. */
   platform: string | null;
+  /** `sponsor --audience`, raw: `global`, or a comma list of codes and group names. Validated in `sponsor.ts`. */
+  audience: string | null;
   /** `sponsor --json`: one object on stdout and nothing else. */
   json: boolean;
   /** False under `--no-open`: print the link and leave the browser alone. */
@@ -64,6 +68,7 @@ const EMPTY: ParsedArgs = {
   version: false,
   amount: null,
   platform: null,
+  audience: null,
   json: false,
   open: true,
   error: null,
@@ -72,7 +77,7 @@ const EMPTY: ParsedArgs = {
 /** Commands whose remaining arguments belong to a program the USER named, not to a harness we know. */
 const VERBATIM_COMMANDS = new Set(['run']);
 
-/** The command whose four extra flags are recognised after the command word. See `takeFlag`. */
+/** The command whose five extra flags are recognised after the command word. See `takeFlag`. */
 const SPONSOR_COMMAND = 'sponsor';
 
 /**
@@ -118,6 +123,15 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
         out.platform = value;
         return 2;
       }
+      case '--audience': {
+        const value = argv[i + 1];
+        if (value === undefined || value.startsWith('-')) {
+          out.error = '--audience needs global or a country list, e.g. --audience PT,ES';
+          return 1;
+        }
+        out.audience = value;
+        return 2;
+      }
       default:
         if (token.startsWith('--amount=')) {
           const value = token.slice('--amount='.length);
@@ -135,6 +149,15 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
             return 1;
           }
           out.platform = value;
+          return 1;
+        }
+        if (token.startsWith('--audience=')) {
+          const value = token.slice('--audience='.length);
+          if (!value) {
+            out.error = '--audience needs global or a country list, e.g. --audience PT,ES';
+            return 1;
+          }
+          out.audience = value;
           return 1;
         }
     }
@@ -226,7 +249,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     return out;
   }
 
-  // ── After the command word: our launch flags, until `--`; `sponsor`'s four as well, for it.
+  // ── After the command word: our launch flags, until `--`; `sponsor`'s five as well, for it.
   const sponsorFlags = out.command === SPONSOR_COMMAND;
   let j = 0;
   while (j < tail.length) {
@@ -278,7 +301,12 @@ Options:
   ${command('--version, -V')}     ${VERSION}
 
 sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
-  ${command('--amount <n>')}      whole dollars. Default: the amount that takes #1 today
+  ${command('--amount <n>')}      whole dollars. Default: the amount that takes #1 on your board today
+  ${command('--audience <a>')}    ${style.strong('global')} (the default, every board, ${money(MIN_GLOBAL_CENTS)} minimum), or the countries
+                    you want to be seen in: ${style.strong('--audience PT,ES')} — those local boards only,
+                    ${money(MIN_LOCAL_CENTS)} minimum. Groups count as countries and mix with them:
+                    ${GROUP_NAMES.slice(0, 7).join(', ')},
+                    ${GROUP_NAMES.slice(7).join(', ')}
   ${command('--platform <id>')}   for a bare @handle — x, instagram, github, linkedin, youtube,
                     tiktok, threads, bluesky. X when not given
   ${command('--json')}            one object on stdout, nothing else. For an agent

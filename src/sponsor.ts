@@ -1,4 +1,5 @@
 import { money } from './ui.ts';
+import { COUNTRY_GROUPS, GROUP_NAMES, isCountryCode } from './countries.ts';
 
 /**
  * `sponsoredtokens sponsor` — everything about it that is a decision, with no network in sight.
@@ -52,11 +53,15 @@ export const DEFAULT_PLATFORM: PlatformId = 'x';
 export const MAX_SPONSOR_CENTS = 10_000_000;
 
 /**
- * `worker/src/sponsored/config.ts`'s `MIN_SPONSOR_CENTS`, used ONLY when the leaderboard could not
- * be read. The live minimum comes from `/api/leaderboard`, which is the number the worker will
- * actually enforce; this is the floor that keeps `--amount` checkable offline.
+ * The two minimums, from `docs/sponsoredtokens/audience-contract.md`.
+ *
+ * A global sponsorship is on every board there is, so it costs $100. A local one is on the boards of
+ * the countries it named and nowhere else, so it costs $10 — the price of being seen in one place
+ * rather than everywhere. The worker enforces the same two numbers; checking them here means the
+ * refusal arrives before a Checkout session exists.
  */
-export const FALLBACK_MIN_CENTS = 1_000;
+export const MIN_GLOBAL_CENTS = 10_000;
+export const MIN_LOCAL_CENTS = 1_000;
 
 /** A refusal this CLI makes on its own, before any request. The code is what `--json` prints. */
 export interface SponsorRefusal {
@@ -106,6 +111,89 @@ export function parseTarget(raw: string | undefined, platform: string | null): S
   return { value, platform: null };
 }
 
+// ── The audience ──────────────────────────────────────────────────────────────────────────────
+
+/** What the checkout body and the `--json` output carry: `'global'`, or sorted ISO alpha-2 codes. */
+export type Audience = 'global' | string[];
+
+/** The most countries one sponsorship can name. The contract's cap, enforced by the worker too. */
+export const MAX_AUDIENCE_COUNTRIES = 80;
+
+export interface AudienceChoice {
+  /** The value sent to the worker and printed in the JSON: sorted and de-duplicated. */
+  audience: Audience;
+  /**
+   * The country whose LOCAL board decides the default amount and the rank; null when global.
+   *
+   * The FIRST country the caller named, not the first alphabetically — `--audience PT,ES` is a
+   * Portuguese company that also wants Spain, and the board it is shown is Portugal's. The array
+   * sent to the worker is sorted all the same, because a set has no order.
+   */
+  board: string | null;
+}
+
+export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null };
+
+/** $100 for global, $10 for local. The number, without the sentence explaining it. */
+export const minimumCentsFor = (audience: Audience): number =>
+  audience === 'global' ? MIN_GLOBAL_CENTS : MIN_LOCAL_CENTS;
+
+/**
+ * `--audience global | <CC,CC,…>` → the value the request carries, or a refusal.
+ *
+ * Everything a person might reasonably type is accepted — lower case, spaces around the commas, a
+ * group name mixed in with plain codes, the same country twice — and everything else is REFUSED by
+ * name rather than dropped. A silently ignored country is a sponsor paying to be seen somewhere they
+ * are not, which is the one failure mode this parser exists to prevent.
+ *
+ * `global` is not a country and cannot be one of several: `--audience global,PT` is either "the
+ * world" or "Portugal" and there is no reading of it that is both, so it is a usage error.
+ */
+export function parseAudience(raw: string | null | undefined): AudienceChoice | SponsorRefusal {
+  const text = (raw ?? '').trim();
+  if (!text) return GLOBAL_AUDIENCE;
+
+  const tokens = text.split(',').map((token) => token.trim());
+  if (tokens.some((token) => !token)) {
+    return refuse('invalid_audience', `--audience has an empty entry in \`${text}\`. Write it as PT,ES — one comma between countries.`);
+  }
+
+  const sawGlobal = tokens.some((token) => token.toLowerCase() === 'global');
+  if (sawGlobal && tokens.length > 1) {
+    return refuse(
+      'invalid_audience',
+      'global means every board, so it cannot be mixed with countries. Pick one: --audience global, or --audience PT,ES.',
+    );
+  }
+  if (sawGlobal) return GLOBAL_AUDIENCE;
+
+  const codes: string[] = [];
+  for (const token of tokens) {
+    const group = COUNTRY_GROUPS[token.toLowerCase()];
+    if (group) {
+      codes.push(...group);
+      continue;
+    }
+    const code = token.toUpperCase();
+    if (!isCountryCode(code)) {
+      return refuse(
+        'invalid_audience',
+        `\`${token}\` is not a country. --audience takes two-letter ISO country codes (PT, ES), the word global, or a group: ${GROUP_NAMES.join(', ')}.`,
+      );
+    }
+    codes.push(code);
+  }
+
+  const unique = [...new Set(codes)].sort();
+  if (unique.length > MAX_AUDIENCE_COUNTRIES) {
+    return refuse(
+      'invalid_audience',
+      `That is ${unique.length} countries; one sponsorship can name ${MAX_AUDIENCE_COUNTRIES}. Sponsor globally instead: --audience global.`,
+    );
+  }
+  return { audience: unique, board: codes[0]! };
+}
+
 // ── The amount ────────────────────────────────────────────────────────────────────────────────
 
 /** What `/api/leaderboard` tells us that this command needs. Nothing here is decoration. */
@@ -126,18 +214,24 @@ export const wholeDollars = (cents: number): number => Math.ceil(cents / 100) * 
 export interface AmountRequest {
   /** `--amount`, in whole dollars, or null to take the board's suggestion. */
   dollars: number | null;
-  /** Null when the leaderboard could not be read. */
+  /** The board this sponsorship is being bought on. Null when it could not be read. */
   board: SponsorBoard | null;
+  /** Which minimum applies, and which board's suggestion the default takes. */
+  audience: Audience;
 }
 
 /**
  * The amount, in cents, or a refusal — decided entirely before anything is POSTed.
  *
+ * The minimum is the AUDIENCE's ($100 global, $10 local), raised to the board's own if that board
+ * asks for more: the two agree today, and if the pool ever raises one of them the CLI follows the
+ * live number rather than minting a session the worker will refuse.
+ *
  * The ceiling is checked here as well as at the worker on purpose: $100,000 is a typo guard, and a
  * typo caught after a round trip is a typo the caller has already stopped watching for.
  */
 export function resolveAmountCents(request: AmountRequest): number | SponsorRefusal {
-  const minimum = request.board?.minimumCents ?? FALLBACK_MIN_CENTS;
+  const minimum = Math.max(minimumCentsFor(request.audience), request.board?.minimumCents ?? 0);
 
   let cents: number;
   if (request.dollars === null) {
@@ -156,7 +250,11 @@ export function resolveAmountCents(request: AmountRequest): number | SponsorRefu
   }
 
   if (cents < minimum) {
-    return refuse('amount_below_minimum', `The minimum sponsorship is ${money(minimum)}. You asked for ${money(cents)}.`);
+    const why =
+      request.audience === 'global'
+        ? `a global sponsorship is on every board there is, so it starts at ${money(minimum)}. A country or two costs a tenth of that: --audience PT,ES`
+        : `a local sponsorship is on the boards of the countries you named, and starts at ${money(minimum)}`;
+    return refuse('amount_below_minimum', `You asked for ${money(cents)} — ${why}.`);
   }
   if (cents > MAX_SPONSOR_CENTS) {
     return refuse(
@@ -204,6 +302,17 @@ export function rankLabel(rank: Rank): string {
   return `#${rank.position} of ${rank.outOf}`;
 }
 
+/**
+ * The rank as the terminal prints it — and, for a local sponsorship, WHICH board it is a rank on.
+ *
+ * A `#1` that does not say "on the local board of PT" is the same sentence a $100,000 global
+ * sponsorship earns, for $10. The board named is the first country the caller chose, which is the
+ * board the amount was suggested against.
+ */
+export function rankLine(rank: Rank, choice: AudienceChoice): string {
+  return choice.board ? `${rankLabel(rank)} on the local board of ${choice.board}` : rankLabel(rank);
+}
+
 // ── The request and the answer ────────────────────────────────────────────────────────────────
 
 /** Exactly what `POST /api/sponsor/checkout` reads. Nothing optional is sent as `undefined`. */
@@ -211,15 +320,18 @@ export interface CheckoutBody {
   target: string;
   platform?: PlatformId;
   amountCents: number;
+  /** `'global'`, or the sorted country codes. Sent always, so the stored audience is never a guess. */
+  audience: Audience;
   termsVersion: string;
   acceptTerms: true;
 }
 
-export function checkoutBody(target: SponsorTarget, amountCents: number): CheckoutBody {
+export function checkoutBody(target: SponsorTarget, amountCents: number, audience: Audience): CheckoutBody {
   return {
     target: target.value,
     ...(target.platform ? { platform: target.platform } : {}),
     amountCents,
+    audience,
     termsVersion: TERMS_VERSION,
     acceptTerms: true,
   };
@@ -238,6 +350,7 @@ const WORKER_REFUSALS: Record<string, string> = {
   terms_not_accepted: 'The terms were not accepted. This is a bug in the CLI — please report it.',
   terms_version_required: 'The terms version was rejected. Update the CLI: npm i -g sponsoredtokens.',
   invalid_target: 'That is not a website or a handle the pool can sponsor.',
+  invalid_audience: 'The pool refused that audience. Give it country codes (--audience PT,ES) or --audience global.',
   invalid_email: 'That email address was refused.',
   invalid_json: 'The pool could not read the request. This is a bug in the CLI — please report it.',
   rate_limited: 'Too many attempts from this address. Wait a minute and try again.',
@@ -285,6 +398,8 @@ export function checkoutResult(body: unknown, amountCents: number): CheckoutResu
 export interface SponsorJson {
   target: string;
   platform: PlatformId | null;
+  /** `'global'`, or the sorted countries this sponsorship will be seen in. */
+  audience: Audience;
   amountCents: number;
   /** Null when the leaderboard could not be read and the rank is therefore unknown. */
   rank: number | null;
@@ -301,10 +416,17 @@ export interface SponsorJson {
  * the human the agent works for — on Stripe's own page, with their own card. No field here implies
  * the agent can settle it.
  */
-export function sponsorJson(target: SponsorTarget, amountCents: number, rank: Rank | null, result: CheckoutResult): SponsorJson {
+export function sponsorJson(
+  target: SponsorTarget,
+  amountCents: number,
+  rank: Rank | null,
+  result: CheckoutResult,
+  audience: Audience,
+): SponsorJson {
   return {
     target: target.value,
     platform: target.platform,
+    audience,
     amountCents: result.amountCents,
     rank: rank ? rank.position : null,
     checkoutUrl: result.checkoutUrl,

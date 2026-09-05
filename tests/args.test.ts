@@ -73,21 +73,35 @@ test('help and version are recognised on their own', () => {
   assert.equal(parseArgs(['-V']).version, true);
 });
 
-// ── sponsor's four flags ──────────────────────────────────────────────────────────────────────
+// ── sponsor's five flags ──────────────────────────────────────────────────────────────────────
 
-test('sponsor takes its target and its four flags, in either spelling', () => {
-  const spaced = parseArgs(['sponsor', 'acme.com', '--amount', '50', '--platform', 'github', '--json', '--no-open']);
+test('sponsor takes its target and its five flags, in either spelling', () => {
+  const spaced = parseArgs(['sponsor', 'acme.com', '--amount', '50', '--platform', 'github', '--audience', 'PT,ES', '--json', '--no-open']);
   assert.equal(spaced.command, 'sponsor');
   assert.deepEqual(spaced.rest, ['acme.com']);
   assert.equal(spaced.amount, 50);
   assert.equal(spaced.platform, 'github');
+  assert.equal(spaced.audience, 'PT,ES');
   assert.equal(spaced.json, true);
   assert.equal(spaced.open, false);
 
-  const equals = parseArgs(['sponsor', '--amount=50', '--platform=github', '@acme']);
+  const equals = parseArgs(['sponsor', '--amount=50', '--platform=github', '--audience=dach', '@acme']);
   assert.deepEqual(equals.rest, ['@acme']);
   assert.equal(equals.amount, 50);
   assert.equal(equals.platform, 'github');
+  assert.equal(equals.audience, 'dach');
+});
+
+/**
+ * The VALUE is not checked here — `sponsor.ts`'s `parseAudience` owns that, the way it owns the
+ * platform id. What `args.ts` owes the caller is a flag that was given nothing at all.
+ */
+test('--audience without a value is a named error, and the value is passed on untouched', () => {
+  assert.match(parseArgs(['sponsor', 'acme.com', '--audience']).error ?? '', /--audience needs global or a country list/);
+  assert.match(parseArgs(['sponsor', 'acme.com', '--audience', '--json']).error ?? '', /--audience needs global or a country list/);
+  assert.match(parseArgs(['sponsor', 'acme.com', '--audience=']).error ?? '', /--audience needs global or a country list/);
+  assert.equal(parseArgs(['sponsor', 'acme.com', '--audience', 'nonsense']).audience, 'nonsense');
+  assert.equal(parseArgs(['sponsor', 'acme.com']).audience, null, 'nothing given is global, decided in sponsor.ts');
 });
 
 test('the browser opens unless it is told not to', () => {
@@ -113,10 +127,11 @@ test('--platform without a value is a named error', () => {
  * only through `--`.
  */
 test('sponsor’s flags are not taken off a harness or off a run command', () => {
-  const harness = parseArgs(['codex', '--json', '--amount', '50', '--no-open']);
+  const harness = parseArgs(['codex', '--json', '--amount', '50', '--audience', 'PT', '--no-open']);
   assert.equal(harness.json, false);
   assert.equal(harness.amount, null);
-  assert.deepEqual(harness.rest, ['--json', '--amount', '50', '--no-open']);
+  assert.equal(harness.audience, null);
+  assert.deepEqual(harness.rest, ['--json', '--amount', '50', '--audience', 'PT', '--no-open']);
 
   const command = parseArgs(['run', 'npm', 'test', '--json']);
   assert.equal(command.json, false);
@@ -142,6 +157,17 @@ test('the help text names sponsor and what the link is for', () => {
   assert.match(help, /--platform <id>/);
   assert.match(help, /--no-open/);
   assert.match(help, /give it to the person who\n {2}pays/);
+});
+
+test('the help text documents --audience: the default, the two minimums and the groups', () => {
+  const help = helpText(['claude', 'codex']);
+  assert.match(help, /--audience <a>/);
+  assert.match(help, /--audience PT,ES/);
+  assert.match(help, /\$100 minimum/);
+  assert.match(help, /\$10 minimum/);
+  for (const group of ['eu', 'eea', 'dach', 'nordics', 'iberia', 'uk-ie', 'north-america', 'latam', 'apac', 'middle-east', 'africa', 'english']) {
+    assert.ok(help.includes(group), `the help text should name the ${group} group`);
+  }
 });
 
 test('--region takes eu or us and nothing else', () => {

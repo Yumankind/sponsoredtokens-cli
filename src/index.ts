@@ -45,9 +45,10 @@ import {
   TERMS_VERSION,
   checkoutBody,
   isRefusal,
+  parseAudience,
   parseTarget,
   rankFor,
-  rankLabel,
+  rankLine,
   resolveAmountCents,
   sponsorJson,
   type SponsorRefusal,
@@ -257,21 +258,26 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
   const target = parseTarget(parsed.rest[0], parsed.platform);
   if (isRefusal(target)) return fail(target);
 
+  // The audience comes first, because it chooses the BOARD everything below is measured against:
+  // the global one, or the local board of the first country named (`--audience PT,ES` → PT).
+  const choice = parseAudience(parsed.audience);
+  if (isRefusal(choice)) return fail(choice);
+
   // The board decides the default amount, the minimum and the rank. Every refusal below happens
   // BEFORE anything is POSTed: a Checkout session that exists because of a typo is a row nobody
   // asked for.
-  const board = await fetchSponsorBoard(ep);
-  const amountCents = resolveAmountCents({ dollars: parsed.amount, board });
+  const board = await fetchSponsorBoard(ep, choice);
+  const amountCents = resolveAmountCents({ dollars: parsed.amount, board, audience: choice.audience });
   if (isRefusal(amountCents)) return fail(amountCents);
 
   const key = resolveKey();
-  const result = await createSponsorCheckout(ep, checkoutBody(target, amountCents), key?.token ?? null);
+  const result = await createSponsorCheckout(ep, checkoutBody(target, amountCents, choice.audience), key?.token ?? null);
   if (isRefusal(result)) return fail(result);
 
   const rank = board ? rankFor(board, amountCents) : null;
 
   if (parsed.json) {
-    out(JSON.stringify(sponsorJson(target, amountCents, rank, result)));
+    out(JSON.stringify(sponsorJson(target, amountCents, rank, result, choice.audience)));
   } else {
     if (!parsed.quiet) {
       write('');
@@ -280,7 +286,7 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
     }
     write(row('Sponsor', style.strong(target.value), style));
     write(row('Amount', style.accent(money(result.amountCents)), style));
-    if (rank) write(row('Rank', rankLabel(rank), style));
+    if (rank) write(row('Rank', rankLine(rank, choice), style));
     write(row('Pay', style.link(result.checkoutUrl), style));
     if (!parsed.quiet) {
       // The pool's short link, when the worker gave one: ~40 bytes, a 33-column symbol that fits.

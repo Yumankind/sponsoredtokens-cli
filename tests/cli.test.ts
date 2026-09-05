@@ -32,6 +32,20 @@ const LEADERBOARD = {
   ],
   total: 13,
   suggestedCents: 48_700,
+  minimumCents: 10_000,
+};
+
+/** `?board=local&country=PT`: the sponsors whose audience includes Portugal, and nobody else. */
+const LOCAL_LEADERBOARD = {
+  board: 'local',
+  country: 'PT',
+  pool: { balanceCents: 5_500, activeCount: 2 },
+  sponsors: [
+    { displayName: 'Pastelaria Central', balanceCents: 4_000, lifetimeCents: 4_000 },
+    { displayName: 'Bica & Co', balanceCents: 1_500, lifetimeCents: 3_000 },
+  ],
+  total: 2,
+  suggestedCents: 4_500,
   minimumCents: 1_000,
 };
 
@@ -70,6 +84,9 @@ const CHECKOUT_URL =
 /** What the last `POST /api/sponsor/checkout` carried: the body, and whether a key rode with it. */
 let lastCheckout: { body: Record<string, unknown>; authorization: string | null } | null = null;
 
+/** The query of the last `GET /api/leaderboard` — which BOARD the amount and the rank came from. */
+let lastLeaderboardQuery: string | null = null;
+
 /** Set to make the next checkout refuse, the way the worker refuses. */
 let checkoutRefusal: { status: number; body: unknown } | null = null;
 
@@ -79,7 +96,7 @@ let home = '';
 
 before(async () => {
   server = createServer((req, res) => {
-    const path = (req.url ?? '').split('?')[0];
+    const [path, query = ''] = (req.url ?? '').split('?');
 
     if (path === '/api/sponsor/checkout' && req.method === 'POST') {
       let raw = '';
@@ -100,8 +117,10 @@ before(async () => {
       return;
     }
 
+    if (path === '/api/leaderboard') lastLeaderboardQuery = query;
+    const leaderboard = new URLSearchParams(query).get('board') === 'local' ? LOCAL_LEADERBOARD : LEADERBOARD;
     const body =
-      path === '/api/leaderboard' ? LEADERBOARD : path === '/api/sponsors/recent' ? RECENT : path === '/api/v1/models' ? MODELS : path === '/api/account/me' ? ACCOUNT : null;
+      path === '/api/leaderboard' ? leaderboard : path === '/api/sponsors/recent' ? RECENT : path === '/api/v1/models' ? MODELS : path === '/api/account/me' ? ACCOUNT : null;
     res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body ?? { error: `no route ${path}` }));
   });
@@ -255,12 +274,13 @@ test('`--help` carries the wordmark and exits 0', async () => {
 const anonymous = { SPONSOREDTOKENS_API_KEY: '' };
 
 test('`sponsor --json` prints ONE object on stdout and nothing else, with the operator as payer', async () => {
-  const { code, stdout, stderr } = await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open'], anonymous);
+  const { code, stdout, stderr } = await run(['sponsor', 'acme.com', '--amount', '100', '--json', '--no-open'], anonymous);
   assert.equal(code, 0);
   assert.deepEqual(JSON.parse(stdout), {
     target: 'https://acme.com',
     platform: null,
-    amountCents: 1_000,
+    audience: 'global',
+    amountCents: 10_000,
     rank: 4,
     checkoutUrl: CHECKOUT_URL,
     shortUrl: null,
@@ -271,11 +291,12 @@ test('`sponsor --json` prints ONE object on stdout and nothing else, with the op
 });
 
 test('the request carries the terms, the acceptance and the platform, and no key when there is none', async () => {
-  await run(['sponsor', '@acme', '--platform', 'github', '--amount', '25', '--json', '--no-open'], anonymous);
+  await run(['sponsor', '@acme', '--platform', 'github', '--amount', '250', '--json', '--no-open'], anonymous);
   assert.deepEqual(lastCheckout?.body, {
     target: '@acme',
     platform: 'github',
-    amountCents: 2_500,
+    amountCents: 25_000,
+    audience: 'global',
     termsVersion: TERMS_VERSION,
     acceptTerms: true,
   });
@@ -283,7 +304,7 @@ test('the request carries the terms, the acceptance and the platform, and no key
 });
 
 test('a key, when there is one, rides along so the sponsorship can be attributed later', async () => {
-  await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open']);
+  await run(['sponsor', 'acme.com', '--amount', '100', '--json', '--no-open']);
   assert.equal(lastCheckout?.authorization, 'Bearer sk-st-testkey.SECRET');
 });
 
@@ -325,6 +346,81 @@ test('an amount under the pool’s minimum never reaches the pool', async () => 
   assert.equal(lastCheckout, null, 'no Checkout session was minted for a typo');
 });
 
+// ── sponsor --audience ────────────────────────────────────────────────────────────────────────
+
+test('a local audience reads the LOCAL board and carries the sorted countries into the request', async () => {
+  lastLeaderboardQuery = null;
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--audience', 'pt,es', '--amount', '20', '--json', '--no-open'], anonymous);
+  assert.equal(code, 0);
+  assert.equal(lastLeaderboardQuery, 'board=local&country=PT&sort=remaining', 'the board of the FIRST country named');
+  assert.deepEqual(JSON.parse(stdout), {
+    target: 'https://acme.com',
+    platform: null,
+    audience: ['ES', 'PT'],
+    amountCents: 2_000,
+    rank: 2,
+    checkoutUrl: CHECKOUT_URL,
+    shortUrl: null,
+    terms: { version: TERMS_VERSION, payer: 'operator' },
+  });
+  assert.deepEqual(lastCheckout?.body.audience, ['ES', 'PT']);
+});
+
+test('a group name is expanded to countries before the request', async () => {
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--audience=iberia', '--amount', '20', '--json', '--no-open'], anonymous);
+  assert.equal(code, 0);
+  assert.deepEqual((JSON.parse(stdout) as { audience: string[] }).audience, ['ES', 'PT']);
+  assert.deepEqual(lastCheckout?.body.audience, ['ES', 'PT']);
+});
+
+test('with no --amount a local sponsorship takes #1 on the LOCAL board, for local money', async () => {
+  const { stdout } = await run(['sponsor', 'acme.com', '--audience', 'PT', '--json', '--no-open'], anonymous);
+  const json = JSON.parse(stdout) as { amountCents: number; rank: number };
+  assert.equal(json.amountCents, 4_500, 'the local board’s suggestion, not the global board’s $487');
+  assert.equal(json.rank, 1);
+});
+
+test('the rank line says which board a local sponsorship is #1 on', async () => {
+  const { stdout } = await run(['sponsor', 'acme.com', '--audience', 'PT,ES', '--amount', '50', '--quiet', '--no-open'], anonymous);
+  assert.deepEqual(stdout.split('\n').slice(0, -1), [
+    '  Sponsor   https://acme.com',
+    '  Amount    $50',
+    '  Rank      #1 — the top spot on the local board of PT',
+    `  Pay       ${CHECKOUT_URL}`,
+  ]);
+});
+
+test('a global sponsorship still carries `global`, and its rank line names no board', async () => {
+  const { stdout } = await run(['sponsor', 'acme.com', '--amount', '500', '--quiet', '--no-open'], anonymous);
+  assert.ok(stdout.includes('  Rank      #1 — the top spot\n'));
+  assert.equal(lastCheckout?.body.audience, 'global');
+});
+
+test('$10 is a local sponsorship and not a global one, and the refusal says which is which', async () => {
+  lastCheckout = null;
+  const global = await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open'], anonymous);
+  assert.equal(global.code, 1);
+  const refusal = JSON.parse(global.stdout) as { code: string; error: string };
+  assert.equal(refusal.code, 'amount_below_minimum');
+  assert.match(refusal.error, /global/);
+  assert.match(refusal.error, /\$100/);
+  assert.equal(lastCheckout, null, 'nothing was minted');
+
+  const local = await run(['sponsor', 'acme.com', '--audience', 'PT', '--amount', '10', '--json', '--no-open'], anonymous);
+  assert.equal(local.code, 0, 'the same $10 buys a place on Portugal’s board');
+  assert.equal((JSON.parse(local.stdout) as { amountCents: number }).amountCents, 1_000);
+});
+
+test('an audience that is not countries is refused before any request', async () => {
+  for (const bad of ['portugal', 'global,PT', 'PT,,ES', 'XX']) {
+    lastCheckout = null;
+    const { code, stdout } = await run(['sponsor', 'acme.com', '--audience', bad, '--amount', '50', '--json', '--no-open'], anonymous);
+    assert.equal(code, 1, `${bad} should be refused`);
+    assert.equal((JSON.parse(stdout) as { code: string }).code, 'invalid_audience');
+    assert.equal(lastCheckout, null);
+  }
+});
+
 test('an amount over $100,000 never reaches the pool either', async () => {
   lastCheckout = null;
   const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '100001', '--json', '--no-open'], anonymous);
@@ -335,7 +431,7 @@ test('an amount over $100,000 never reaches the pool either', async () => {
 
 test('a refusal from the pool arrives as { error, code } on stdout, exit 1', async () => {
   checkoutRefusal = { status: 400, body: { error: 'invalid_target', message: 'That is not a valid GitHub handle.' } };
-  const { code, stdout } = await run(['sponsor', '@a/b', '--platform', 'github', '--amount', '10', '--json', '--no-open'], anonymous);
+  const { code, stdout } = await run(['sponsor', '@a/b', '--platform', 'github', '--amount', '100', '--json', '--no-open'], anonymous);
   assert.equal(code, 1);
   const body = JSON.parse(stdout) as { error: string; code: string };
   assert.equal(body.code, 'invalid_target');
@@ -359,7 +455,7 @@ test('`sponsor` with no target is a usage error rather than a request', async ()
 });
 
 test('an unreachable pool with an --amount still mints a link; without one it says why', async () => {
-  const named = await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open'], {
+  const named = await run(['sponsor', 'acme.com', '--amount', '100', '--json', '--no-open'], {
     ...anonymous,
     SPONSOREDTOKENS_BASE_URL: base,
   });
@@ -374,10 +470,10 @@ test('an unreachable pool with an --amount still mints a link; without one it sa
 });
 
 test('a QR code of the link is drawn on a colour terminal, and never into a pipe', async () => {
-  const piped = await run(['sponsor', 'acme.com', '--amount', '10', '--no-open']);
+  const piped = await run(['sponsor', 'acme.com', '--amount', '100', '--no-open']);
   assert.ok(!piped.stdout.includes('▀'), 'no picture without colour: contrast could not be guaranteed');
 
-  const coloured = await run(['sponsor', 'acme.com', '--amount', '10', '--no-open'], { FORCE_COLOR: '3', COLUMNS: '120' });
+  const coloured = await run(['sponsor', 'acme.com', '--amount', '100', '--no-open'], { FORCE_COLOR: '3', COLUMNS: '120' });
   const rows = coloured.stdout.split('\n').filter((line) => line.includes('▀'));
   assert.ok(rows.length > 10, 'the symbol is drawn, two module rows per line');
 });
