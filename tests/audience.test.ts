@@ -11,7 +11,6 @@ import assert from 'node:assert/strict';
 
 import {
   COLLAPSED_TO_GLOBAL,
-  LOCAL_MAX_COUNTRIES,
   MIN_GLOBAL_CENTS,
   MIN_LOCAL_CENTS,
   checkoutBody,
@@ -26,7 +25,7 @@ import {
   type AudienceChoice,
   type SponsorBoard,
 } from '../src/sponsor.ts';
-import { COUNTRY_GROUPS, GROUP_NAMES, isCountryCode } from '../src/countries.ts';
+import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_CODES, ISO_COUNTRY_COUNT, isCountryCode } from '../src/countries.ts';
 
 const choice = (raw: string | null): AudienceChoice => {
   const parsed = parseAudience(raw);
@@ -113,6 +112,24 @@ test('T1 and XX look like countries and are not', () => {
   assert.equal(isCountryCode('XX'), false);
 });
 
+test('validation is the LIST, not the shape — an invented pair is refused by name', () => {
+  for (const invented of ['ZZ', 'zz', 'QQ', 'XA']) {
+    const refusal = parseAudience(invented);
+    assert.ok(isRefusal(refusal) && refusal.code === 'invalid_audience', `${invented} should be refused`);
+    assert.match(refusal.message, /is not a country/);
+    assert.equal(isCountryCode(invented.toUpperCase()), false);
+  }
+});
+
+test('the embedded list is the whole standard, and agrees with the site’s', () => {
+  // `sponsoredtokens-site/src/lib/countries.ts` is the original this was copied from. If that table
+  // ever gains or loses a code, this number moves and the copy has to be retaken.
+  assert.equal(ISO_COUNTRY_COUNT, 249);
+  assert.equal(ISO_COUNTRY_CODES.size, 249);
+  for (const real of ['PT', 'ES', 'GB', 'US', 'JP', 'ZW', 'AD', 'VA']) assert.ok(isCountryCode(real), real);
+  for (const fake of ['T1', 'XX', 'ZZ', 'EU', 'UK']) assert.equal(isCountryCode(fake), false, fake);
+});
+
 test('an empty entry is a typo worth naming', () => {
   for (const bad of ['PT,', ',PT', 'PT,,ES']) {
     const refusal = parseAudience(bad);
@@ -132,62 +149,55 @@ test('global cannot be one of several — it is either the world or a list', () 
 // ── More than sixty countries ─────────────────────────────────────────────────────────────────
 
 /**
- * `n` distinct tokens that `parseAudience` reads as exactly one country each.
+ * `n` real countries, in code order, drawn from the embedded standard.
  *
- * Two kinds are skipped, and both are the parser being right rather than the generator working
- * around it: `XX` is reserved, and `EU` is a GROUP NAME — a token that is both is read as the group,
- * so `EU` in this list would quietly add 27 countries and the count under test would be a lie.
+ * They must be REAL: validation is membership in `ISO_COUNTRY_CODES` now, so an invented pair like
+ * `ZZ` is refused rather than counted. Taking them off the front of the sorted list also means
+ * `codes(ISO_COUNTRY_COUNT)` is exactly the set that covers the world, which is the one set that
+ * behaves differently.
  */
+const ALL_CODES = [...ISO_COUNTRY_CODES].sort();
 const codes = (n: number): string[] => {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const groups = new Set(GROUP_NAMES.map((name) => name.toUpperCase()));
-  const out: string[] = [];
-  for (const a of letters) {
-    for (const b of letters) {
-      const code = `${a}${b}`;
-      if (code === 'XX' || code === 'T1' || groups.has(code)) continue;
-      out.push(code);
-      if (out.length === n) return out;
-    }
-  }
-  throw new Error(`cannot build ${n} codes`);
+  assert.ok(n <= ALL_CODES.length, `only ${ALL_CODES.length} countries exist`);
+  return ALL_CODES.slice(0, n);
 };
 
-test('the line is the boundary: 60 is local, 61 is the world', () => {
-  assert.equal(LOCAL_MAX_COUNTRIES, 60);
-
-  const local = choice(codes(LOCAL_MAX_COUNTRIES).join(','));
-  assert.equal(Array.isArray(local.audience) && local.audience.length, 60);
-  assert.equal(local.collapsedFrom, null);
-  assert.equal(minimumCentsFor(local.audience), MIN_LOCAL_CENTS * 60, 'sixty boards, sixty times $10');
-
-  const world = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
-  assert.equal(world.audience, 'global');
-  assert.equal(world.collapsedFrom, 61);
-  assert.equal(minimumCentsFor(world.audience), MIN_GLOBAL_CENTS);
-});
-
-test('60 countries keeps the board of the FIRST one named, like any local set', () => {
-  const picked = codes(LOCAL_MAX_COUNTRIES);
-  const parsed = choice(picked.join(','));
-  assert.equal(parsed.board, picked[0]);
-});
-
-test('a collapsed set has no board and says why, in Bruno’s words', () => {
-  const parsed = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
-  assert.equal(parsed.board, null);
-  assert.equal(COLLAPSED_TO_GLOBAL, 'More than 60 countries is the world, so this is a global sponsorship.');
-});
-
-test('the flip counts DISTINCT countries, so repeats do not reach it', () => {
-  const picked = codes(LOCAL_MAX_COUNTRIES);
-  const parsed = choice([...picked, ...picked].join(','));
+test('there is no ceiling: 60 countries is a local sponsorship at $600', () => {
+  const parsed = choice(codes(60).join(','));
   assert.equal(Array.isArray(parsed.audience) && parsed.audience.length, 60);
+  assert.equal(parsed.collapsedFrom, null);
+  assert.equal(parsed.board, ALL_CODES[0]);
+  assert.equal(minimumCentsFor(parsed.audience), 60_000, 'sixty boards, $600');
+});
+
+test('248 countries — every one but the last — is STILL local, at $2,480', () => {
+  const parsed = choice(codes(ISO_COUNTRY_COUNT - 1).join(','));
+  assert.equal(Array.isArray(parsed.audience) && parsed.audience.length, 248);
+  assert.equal(parsed.collapsedFrom, null, 'one country short of the world is not the world');
+  assert.equal(minimumCentsFor(parsed.audience), 248_000, '$2,480');
+});
+
+test('all 249 IS the world, and is sold as global at the flat $100', () => {
+  const parsed = choice(codes(ISO_COUNTRY_COUNT).join(','));
+  assert.equal(parsed.audience, 'global');
+  assert.equal(parsed.board, null);
+  assert.equal(parsed.collapsedFrom, 249);
+  assert.equal(minimumCentsFor(parsed.audience), MIN_GLOBAL_CENTS, 'and $100 beats $2,490');
+});
+
+test('the collapse line is Bruno’s sentence, exactly', () => {
+  assert.equal(COLLAPSED_TO_GLOBAL, 'That is every country, so this is a global sponsorship.');
+});
+
+test('the collapse counts DISTINCT countries — repeats never reach the world', () => {
+  const picked = codes(ISO_COUNTRY_COUNT - 1);
+  const parsed = choice([...picked, ...picked].join(','));
+  assert.equal(Array.isArray(parsed.audience) && parsed.audience.length, 248);
   assert.equal(parsed.collapsedFrom, null);
 });
 
-test('the request body carries `global` for a collapsed set, never the list', () => {
-  const parsed = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
+test('the request body carries `global` for the whole world, never the 249 codes', () => {
+  const parsed = choice(codes(ISO_COUNTRY_COUNT).join(','));
   const target = parseTarget('acme.com', null);
   assert.ok(!isRefusal(target));
   assert.equal(checkoutBody(target, MIN_GLOBAL_CENTS, parsed.audience).audience, 'global');
@@ -196,27 +206,29 @@ test('the request body carries `global` for a collapsed set, never the list', ()
   assert.equal(sponsorJson(target, MIN_GLOBAL_CENTS, null, result, parsed.audience).audience, 'global');
 });
 
-test('`eea,africa` is 84 countries, which is the world — it used to be an error', () => {
+test('`eea,africa` is 84 countries and stays local, at $840', () => {
   const both = choice('eea,africa');
-  assert.equal(both.audience, 'global');
-  assert.equal(both.collapsedFrom, 84);
-  assert.equal(both.board, null);
-  assert.equal(minimumCentsFor(both.audience), MIN_GLOBAL_CENTS);
+  assert.equal(Array.isArray(both.audience) && both.audience.length, 84);
+  assert.equal(both.collapsedFrom, null);
+  assert.equal(both.board, 'AT'); // the first code `eea` expands to
+  assert.equal(minimumCentsFor(both.audience), 84_000, '$840');
 });
 
-test('all twelve groups at once is 149 countries, and is sold as the world', () => {
+test('all twelve groups at once is still local — they do not cover the world', () => {
   const all = choice(GROUP_NAMES.join(','));
-  assert.equal(all.audience, 'global');
-  assert.equal(all.collapsedFrom, 149);
+  assert.ok(Array.isArray(all.audience) && all.audience.length < ISO_COUNTRY_COUNT);
+  assert.equal(all.audience.length, 149);
+  assert.equal(all.collapsedFrom, null);
+  assert.equal(minimumCentsFor(all.audience), 149_000, '$1,490');
 });
 
-test('a group small enough to stay local does', () => {
+test('a group is priced by its members like anything else', () => {
   const eu = choice('eu');
   assert.equal(Array.isArray(eu.audience) && eu.audience.length, 27);
-  assert.equal(eu.collapsedFrom, null);
+  assert.equal(minimumCentsFor(eu.audience), 27_000, 'the EU is $270');
   const africa = choice('africa');
   assert.equal(Array.isArray(africa.audience) && africa.audience.length, 54);
-  assert.equal(africa.collapsedFrom, null);
+  assert.equal(minimumCentsFor(africa.audience), 54_000, 'Africa is $540');
 });
 
 // ── The minimum ───────────────────────────────────────────────────────────────────────────────
@@ -237,7 +249,8 @@ test('the local minimum stays flat per country all the way to the sixtieth', () 
   for (const n of [1, 2, 3, 10, 59, 60]) {
     assert.equal(minimumCentsFor(codes(n)), n * MIN_LOCAL_CENTS, `${n} countries`);
   }
-  assert.equal(minimumCentsFor(codes(LOCAL_MAX_COUNTRIES)), 60_000, 'sixty countries is $600');
+  assert.equal(minimumCentsFor(codes(60)), 60_000, 'sixty countries is $600');
+  assert.equal(minimumCentsFor(codes(248)), 248_000, 'and it keeps going: 248 is $2,480');
 });
 
 test('$50 is below the global minimum and the refusal says which minimum, and why', () => {

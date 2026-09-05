@@ -122,19 +122,23 @@ sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
 A **global** sponsor is on every board there is, and on the home page for everybody: $100 minimum. A
 **local** sponsor is on the local boards of the countries they named and nowhere else, and is drawn
 for the pool's tasks that come from those countries: **$10 for each country**. One country is $10,
-three are $30, the full sixty are $600 — a country is a board, and each board costs the same. A
-local sponsor still appears on the global board too, ranked by balance like anyone else. The audience is set at payment, and the
+three are $30, eighty-four are $840 — a country is a board, and each board costs the same. A local
+sponsor still appears on the global board too, ranked by balance like anyone else. The audience is set at payment, and the
 only way to change it is to recharge with a different one.
 
 Country codes are ISO-3166-1 alpha-2, in any case, de-duplicated and sorted before they are sent:
 `--audience pt,es,PT` is `["ES","PT"]`. Twelve group names stand for a list of codes and can be
 mixed with plain ones — `eu`, `eea`, `dach`, `nordics`, `iberia`, `uk-ie`, `north-america`, `latam`,
 `apac`, `middle-east`, `africa`, `english` (`src/countries.ts` writes out exactly what each covers).
-A local sponsorship names up to **60** countries. More than 60 is the world with gaps in it, so that
-set is sold as a **global** sponsorship at the $100 minimum, and the command says so in one line
-before it asks for anything — so `--audience eea,africa`, 84 countries, is global. Nothing is
-refused: you are sold the thing you were describing. The pool applies the same rule at the same
-count; the CLI applies it early so the minimum and the board are right before anything is posted.
+There is **no ceiling**: name as many countries as you like and pay $10 for each, so
+`--audience eea,africa` is 84 countries and $840. The one exception is the set that leaves nobody
+out — name all **249** and it is a **global** sponsorship at the flat $100, because "everyone" ought
+to cost less than enumerating everyone. The command says so in one line before it asks for
+anything: *That is every country, so this is a global sponsorship.* Nothing is refused either way.
+
+Codes are validated against the standard itself — all 249 are embedded in `src/countries.ts`, copied
+from the site's own table so the two agree exactly — so `ZZ` is refused here, by name, rather than
+sent on to be refused by the pool.
 
 Anything else is refused before a Checkout session exists, by name rather than by being dropped: an
 unknown country, an empty entry, `global` mixed with countries, an amount under what the countries

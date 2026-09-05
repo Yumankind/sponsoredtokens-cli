@@ -1,5 +1,5 @@
 import { money } from './ui.ts';
-import { COUNTRY_GROUPS, GROUP_NAMES, isCountryCode } from './countries.ts';
+import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isCountryCode } from './countries.ts';
 
 /**
  * `sponsoredtokens sponsor` — everything about it that is a decision, with no network in sight.
@@ -56,9 +56,12 @@ export const MAX_SPONSOR_CENTS = 10_000_000;
  * The minimums, from `docs/sponsoredtokens/audience-contract.md`.
  *
  * A global sponsorship is on every board there is, so it costs $100 flat. A local one is priced BY
- * THE COUNTRY: $10 for each board it joins — one country $10, three $30, the full sixty $600. That
- * is the whole shape of the thing. A country is a board, a board is $10, and a sponsor buying
+ * THE COUNTRY: $10 for each board it joins — one country $10, three $30, all 248-but-one $2,480.
+ * That is the whole shape of the thing. A country is a board, a board is $10, and a sponsor buying
  * thirty of them is buying thirty places rather than one cheap ticket to most of the pool.
+ *
+ * Which is why buying ALL of them is global instead, at $100: the flat price exists precisely so
+ * that "everyone" is cheaper than enumerating everyone.
  *
  * `MIN_LOCAL_CENTS` is therefore a RATE, not a floor. `minimumCentsFor` is the only thing that
  * should multiply it. The worker enforces the same arithmetic; doing it here too means the refusal
@@ -121,26 +124,15 @@ export function parseTarget(raw: string | undefined, platform: string | null): S
 export type Audience = 'global' | string[];
 
 /**
- * The most countries a LOCAL sponsorship can name. More than this and it is a global one.
+ * Printed, verbatim, when a country list turns out to name every country there is.
  *
- * There is no cap on `--audience`: naming a lot of countries is not an error, and nothing here
- * refuses. But past 60 a list has stopped being "the countries near me" and become the world with
- * gaps in it — and selling that at the LOCAL minimum would be the global board bought for a tenth of
- * its price. So a longer set is COLLAPSED to `global` and charged as such, which is the sponsorship
- * the caller was describing anyway. `COLLAPSED_TO_GLOBAL` is the one line that says it happened.
- *
- * This replaces an entry cap. A cap refuses the purchase with a number the sponsor cannot act on;
- * this sells them the thing they asked for and tells them what it cost.
- *
- * 60 is the contract's number, not this package's: `worker/src/sponsored/audience.ts` collapses at
- * the same count, and the site's docs quote it. Collapsing here as well is not belt-and-braces — it
- * is what lets the command name the right minimum and fetch the right board BEFORE it posts
- * anything, so the sponsor learns the price from the CLI rather than from a 400.
+ * There is NO ceiling on `--audience`. A local sponsorship can name any number of countries and pays
+ * $10 for each, so 84 countries is $840 and there is nothing to refuse or round off — the price is
+ * the count. The single exception is the set that leaves nobody out: naming all 249 is not a very
+ * long local sponsorship, it is a global one described the long way, and it is sold as global at the
+ * flat $100. That is the only collapse, and `coversEveryCountry` is the only thing that decides it.
  */
-export const LOCAL_MAX_COUNTRIES = 60;
-
-/** Printed, verbatim, whenever a country list is collapsed by `LOCAL_MAX_COUNTRIES`. */
-export const COLLAPSED_TO_GLOBAL = `More than ${LOCAL_MAX_COUNTRIES} countries is the world, so this is a global sponsorship.`;
+export const COLLAPSED_TO_GLOBAL = 'That is every country, so this is a global sponsorship.';
 
 export interface AudienceChoice {
   /** The value sent to the worker and printed in the JSON: sorted and de-duplicated. */
@@ -181,8 +173,8 @@ export const minimumCentsFor = (audience: Audience): number =>
  * `global` is not a country and cannot be one of several: `--audience global,PT` is either "the
  * world" or "Portugal" and there is no reading of it that is both, so it is a usage error.
  *
- * A list of more than `LOCAL_MAX_COUNTRIES` comes back as `global` with `collapsedFrom` set, not as
- * a refusal. See that constant for why.
+ * A list naming EVERY country comes back as `global` with `collapsedFrom` set, not as a refusal.
+ * See `COLLAPSED_TO_GLOBAL` for why that one set is different.
  */
 export function parseAudience(raw: string | null | undefined): AudienceChoice | SponsorRefusal {
   const text = (raw ?? '').trim();
@@ -213,14 +205,14 @@ export function parseAudience(raw: string | null | undefined): AudienceChoice | 
     if (!isCountryCode(code)) {
       return refuse(
         'invalid_audience',
-        `\`${token}\` is not a country. --audience takes two-letter ISO country codes (PT, ES), the word global, or a group: ${GROUP_NAMES.join(', ')}.`,
+          `\`${token}\` is not a country. --audience takes ISO-3166-1 alpha-2 codes (PT, ES) — there are ${ISO_COUNTRY_COUNT} of them — the word global, or a group: ${GROUP_NAMES.join(', ')}.`,
       );
     }
     codes.push(code);
   }
 
   const unique = [...new Set(codes)].sort();
-  if (unique.length > LOCAL_MAX_COUNTRIES) {
+  if (coversEveryCountry(unique)) {
     return { audience: 'global', board: null, collapsedFrom: unique.length };
   }
   return { audience: unique, board: codes[0]!, collapsedFrom: null };

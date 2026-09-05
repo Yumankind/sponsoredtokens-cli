@@ -81,13 +81,50 @@ export const COUNTRY_GROUPS: Record<string, readonly string[]> = {
 export const GROUP_NAMES = Object.keys(COUNTRY_GROUPS);
 
 /**
- * Codes that look like countries and are not.
+ * Every ISO-3166-1 alpha-2 code. All 249 of them, and nothing else.
  *
- * `T1` is Tor's exit-node pseudo-country and `XX` is "unknown" — both come out of an edge geo lookup,
- * both match `/^[A-Z]{2}$/`, and neither is somewhere a sponsor can be seen. The contract refuses
- * them at the API; refusing them here means the refusal arrives before a Checkout session exists.
+ * COPIED FROM `sponsoredtokens-site/src/lib/countries.ts`, whose `COUNTRIES` table is the original;
+ * `tests/audience.test.ts` asserts the count so a divergence shows up as a failure rather than as a
+ * sponsor being refused a country the site's picker offered them. It is a copy for the same reason
+ * `COUNTRY_GROUPS` is: this package publishes to npm alone and cannot import from the site.
+ *
+ * `T1` (Tor's exit-node pseudo-country) and `XX` ("we could not tell") are absent BY CONSTRUCTION —
+ * neither is in the standard, so validating against this list refuses them without a special case,
+ * and refuses `ZZ` and every other invented pair by the same rule and with the same sentence.
  */
-export const RESERVED_CODES = new Set(['T1', 'XX']);
+export const ISO_COUNTRY_CODES: ReadonlySet<string> = new Set([
+  'AD', 'AE', 'AF', 'AG', 'AI', 'AL', 'AM', 'AO', 'AQ', 'AR', 'AS', 'AT',
+  'AU', 'AW', 'AX', 'AZ', 'BA', 'BB', 'BD', 'BE', 'BF', 'BG', 'BH', 'BI',
+  'BJ', 'BL', 'BM', 'BN', 'BO', 'BQ', 'BR', 'BS', 'BT', 'BV', 'BW', 'BY',
+  'BZ', 'CA', 'CC', 'CD', 'CF', 'CG', 'CH', 'CI', 'CK', 'CL', 'CM', 'CN',
+  'CO', 'CR', 'CU', 'CV', 'CW', 'CX', 'CY', 'CZ', 'DE', 'DJ', 'DK', 'DM',
+  'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ES', 'ET', 'FI', 'FJ', 'FK',
+  'FM', 'FO', 'FR', 'GA', 'GB', 'GD', 'GE', 'GF', 'GG', 'GH', 'GI', 'GL',
+  'GM', 'GN', 'GP', 'GQ', 'GR', 'GS', 'GT', 'GU', 'GW', 'GY', 'HK', 'HM',
+  'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IM', 'IN', 'IO', 'IQ', 'IR',
+  'IS', 'IT', 'JE', 'JM', 'JO', 'JP', 'KE', 'KG', 'KH', 'KI', 'KM', 'KN',
+  'KP', 'KR', 'KW', 'KY', 'KZ', 'LA', 'LB', 'LC', 'LI', 'LK', 'LR', 'LS',
+  'LT', 'LU', 'LV', 'LY', 'MA', 'MC', 'MD', 'ME', 'MF', 'MG', 'MH', 'MK',
+  'ML', 'MM', 'MN', 'MO', 'MP', 'MQ', 'MR', 'MS', 'MT', 'MU', 'MV', 'MW',
+  'MX', 'MY', 'MZ', 'NA', 'NC', 'NE', 'NF', 'NG', 'NI', 'NL', 'NO', 'NP',
+  'NR', 'NU', 'NZ', 'OM', 'PA', 'PE', 'PF', 'PG', 'PH', 'PK', 'PL', 'PM',
+  'PN', 'PR', 'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW',
+  'SA', 'SB', 'SC', 'SD', 'SE', 'SG', 'SH', 'SI', 'SJ', 'SK', 'SL', 'SM',
+  'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF',
+  'TG', 'TH', 'TJ', 'TK', 'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW',
+  'TZ', 'UA', 'UG', 'UM', 'US', 'UY', 'UZ', 'VA', 'VC', 'VE', 'VG', 'VI',
+  'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
+]);
 
-/** ISO-3166-1 alpha-2 shape, minus the two pseudo-countries. Upper-case input only. */
-export const isCountryCode = (value: string): boolean => /^[A-Z]{2}$/.test(value) && !RESERVED_CODES.has(value);
+/** How many countries there are. A local audience naming all of them is a global sponsorship. */
+export const ISO_COUNTRY_COUNT = ISO_COUNTRY_CODES.size;
+
+/** A real country, by the list above. Upper-case input only — the caller has already folded case. */
+export const isCountryCode = (value: string): boolean => ISO_COUNTRY_CODES.has(value);
+
+/** True when `codes` leaves no country out. The one set that is sold as `global` rather than local. */
+export const coversEveryCountry = (codes: readonly string[]): boolean => {
+  const seen = new Set(codes);
+  for (const code of ISO_COUNTRY_CODES) if (!seen.has(code)) return false;
+  return true;
+};
