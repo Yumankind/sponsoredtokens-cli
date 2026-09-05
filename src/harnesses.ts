@@ -186,6 +186,10 @@ const BUILDERS: Record<string, Builder> = {
     plan.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = small;
     // Deprecated but still read by older installs — see the header.
     plan.env.ANTHROPIC_SMALL_FAST_MODEL = small;
+    // A `sponsored/…` id is not in Claude Code's own model catalogue, and recent versions print a
+    // paragraph about that on every launch and cap the context at an assumed 200k. This is the
+    // switch the same paragraph names for going back to letting the API say what the model is.
+    plan.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT = '1';
     plan.install = { kind: 'npm', command: 'npm install -g @anthropic-ai/claude-code' };
     return plan;
   },
@@ -375,6 +379,10 @@ const BUILDERS: Record<string, Builder> = {
     plan.env.ANTHROPIC_MODEL = ctx.model;
     plan.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = small;
     plan.env.ANTHROPIC_SMALL_FAST_MODEL = small;
+    // A `sponsored/…` id is not in Claude Code's own model catalogue, and recent versions print a
+    // paragraph about that on every launch and cap the context at an assumed 200k. This is the
+    // switch the same paragraph names for going back to letting the API say what the model is.
+    plan.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT = '1';
     plan.install = { kind: 'npm', command: 'npm install -g t3' };
     return plan;
   },

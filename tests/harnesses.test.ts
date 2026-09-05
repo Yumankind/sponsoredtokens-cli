@@ -84,6 +84,8 @@ test('claude gets both the current and the deprecated small-model variable', () 
   const p = plan('claude');
   assert.equal(p.env.ANTHROPIC_MODEL, 'sponsored/anthropic/claude-sonnet-5');
   assert.equal(p.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
+  // The prefixed id is unknown to Claude Code's catalogue; without this it lectures on every launch.
+  assert.equal(p.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT, '1');
   assert.equal(p.env.ANTHROPIC_SMALL_FAST_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
   assert.deepEqual(p.configs, [], 'Claude Code needs no config file');
   assert.equal(p.install?.command, 'npm install -g @anthropic-ai/claude-code');
