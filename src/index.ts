@@ -9,7 +9,8 @@
  *
  * ── WHAT GOES TO STDOUT AND WHAT GOES TO STDERR ─────────────────────────────────────────────────
  *
- * Only `status` and `--help` print to stdout, because only they are output somebody might pipe.
+ * Only `status`, `sponsor` and `--help` print to stdout, because only they are output somebody
+ * might pipe. `sponsor --json` goes further and keeps stdout to exactly one object.
  * Every launch banner, every "installing…" line, the pool block and every warning goes to STDERR —
  * a harness run with `-p` and piped into `jq` must not find our banner at the top of its JSON. This
  * is the one rule in this file that will break something if it is forgotten. It is also why the
@@ -28,16 +29,28 @@ import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 
-import { parseArgs, helpText } from './args.ts';
+import { parseArgs, helpText, type ParsedArgs } from './args.ts';
 import { VERSION } from './version.ts';
 import { endpoints, type Endpoints } from './endpoints.ts';
 import { clearConfig, readConfig, readModelPlan, resolveKey, writeConfig, writeModelPlan, configLocation } from './config-file.ts';
-import { fetchStatus, pollDevice, startDevice } from './api.ts';
+import { createSponsorCheckout, fetchSponsorBoard, fetchStatus, pollDevice, startDevice } from './api.ts';
 import { mergeCodexConfig } from './codex-config.ts';
 import { mergeJsonConfig } from './json-config.ts';
 import { resolveExecutable, runChild } from './exec.ts';
 import { banner, createSpinner, errInk, money, outInk, row, spinnerFrames, suggestHarness, type Ink } from './ui.ts';
 import { boardLines, fetchBoard, EMPTY_BOARD, type Board } from './pool.ts';
+import { encodeQr, qrColumns, qrLines } from './qr.ts';
+import {
+  TERMS_VERSION,
+  checkoutBody,
+  isRefusal,
+  parseTarget,
+  rankFor,
+  rankLabel,
+  resolveAmountCents,
+  sponsorJson,
+  type SponsorRefusal,
+} from './sponsor.ts';
 import { chooseModel, fetchModelPlan, unlockNote, type ModelChoice, type ModelPlan } from './models.ts';
 import {
   DEFAULT_MODEL,
@@ -205,6 +218,108 @@ async function status(ep: Endpoints, quiet: boolean): Promise<number> {
   out(row('Key', style.code(key.source === 'env' ? 'from SPONSOREDTOKENS_API_KEY' : (readConfig()?.keyId ?? 'stored')), style));
   out('');
   return 0;
+}
+
+// ── sponsor ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `sponsoredtokens sponsor <url | @handle>` — the loop's other half.
+ *
+ * An agent that has been running on somebody else's money can put money back with one command. What
+ * it gets is an ORDINARY Stripe Checkout link and a QR code of it, to hand to the human it works
+ * for; the agent settles nothing. Hence the closing line, and hence `payer: 'operator'` in the JSON.
+ *
+ * ── NO KEY, AND A KEY ANYWAY ────────────────────────────────────────────────────────────────────
+ *
+ * `/api/sponsor/checkout` is public — sponsoring is not something an account does, and requiring a
+ * login before somebody can give us money would be a strange place to put a wall. So this is the
+ * one command below `login` that runs signed out. When a key IS present it is sent, so the
+ * sponsorship can be attributed to the account that asked for it later.
+ *
+ * ── WHERE THE BYTES GO ──────────────────────────────────────────────────────────────────────────
+ *
+ * Without `--json` this is a report, so it prints to STDOUT like `status` does. With `--json`,
+ * stdout carries exactly one object and everything else — the wordmark, the terms line, every
+ * warning — moves to stderr, because the caller is a program that is about to run `JSON.parse` on
+ * what it reads.
+ */
+async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
+  const write = parsed.json ? note : out;
+  const style = parsed.json ? errInk() : outInk();
+
+  const fail = (refusal: SponsorRefusal): number => {
+    if (parsed.json) out(JSON.stringify({ error: refusal.message, code: refusal.code }));
+    else note(`  ${refusal.message}`);
+    return 1;
+  };
+
+  const target = parseTarget(parsed.rest[0], parsed.platform);
+  if (isRefusal(target)) return fail(target);
+
+  // The board decides the default amount, the minimum and the rank. Every refusal below happens
+  // BEFORE anything is POSTed: a Checkout session that exists because of a typo is a row nobody
+  // asked for.
+  const board = await fetchSponsorBoard(ep);
+  const amountCents = resolveAmountCents({ dollars: parsed.amount, board });
+  if (isRefusal(amountCents)) return fail(amountCents);
+
+  const key = resolveKey();
+  const result = await createSponsorCheckout(ep, checkoutBody(target, amountCents), key?.token ?? null);
+  if (isRefusal(result)) return fail(result);
+
+  const rank = board ? rankFor(board, amountCents) : null;
+
+  if (parsed.json) {
+    out(JSON.stringify(sponsorJson(target, amountCents, rank, result)));
+  } else {
+    if (!parsed.quiet) {
+      write('');
+      write(banner(VERSION, style));
+      write('');
+    }
+    write(row('Sponsor', style.strong(target.value), style));
+    write(row('Amount', style.accent(money(result.amountCents)), style));
+    if (rank) write(row('Rank', rankLabel(rank), style));
+    write(row('Pay', style.link(result.checkoutUrl), style));
+    if (!parsed.quiet) {
+      // The pool's short link, when the worker gave one: ~40 bytes, a 33-column symbol that fits.
+      printQr(result.shortUrl ?? result.checkoutUrl, style, write);
+      write('');
+      write('  Give this link to the person who pays. They accept the terms');
+      write(`  (${style.link(`${ep.site}/terms`)}, version ${style.strong(TERMS_VERSION)}) on the Checkout page,`);
+      write('  and the sponsorship goes live within seconds of the payment.');
+      write('');
+    }
+  }
+
+  // The same rule as `login`: a browser is a convenience on top of a link that has already been
+  // printed, and there is nothing to open into on a machine with no terminal attached.
+  if (parsed.open && (process.stdout.isTTY === true || process.stderr.isTTY === true)) openBrowser(result.checkoutUrl);
+  return 0;
+}
+
+/**
+ * The link as a QR code, or nothing at all.
+ *
+ * Three ways this draws nothing, and all three are the right answer rather than a failure:
+ * the payload is past what the encoder holds; the terminal is too narrow for the symbol, which
+ * would wrap it into an unreadable smear; or there is no colour, and a QR without guaranteed
+ * black-on-white cannot be trusted to be dark-on-light in the reader's theme (`qr.ts`).
+ *
+ * A live Stripe link needs 85 columns, which is why the worker also hands back a short `/p/<code>`
+ * link to the same page: ~40 bytes, 33 columns, drawn here in preference. `qr.ts` has the numbers.
+ */
+function printQr(url: string, style: Ink, write: (line?: string) => void): void {
+  if (style.level === 0) return;
+  let qr;
+  try {
+    qr = encodeQr(url);
+  } catch {
+    return;
+  }
+  if (qrColumns(qr) > (process.stdout.columns ?? 80)) return;
+  write('');
+  for (const line of qrLines(qr)) write(line);
 }
 
 // ── launching a harness ───────────────────────────────────────────────────────────────────────
@@ -392,6 +507,8 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (parsed.command === 'login') return login(ep, parsed.quiet);
   if (parsed.command === 'status') return status(ep, parsed.quiet);
+  // Sponsoring the pool needs no key: the endpoint is public (see `sponsor` above).
+  if (parsed.command === 'sponsor') return sponsor(ep, parsed);
 
   // Everything below needs a key.
   const key = resolveKey();

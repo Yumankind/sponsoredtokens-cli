@@ -38,6 +38,14 @@ export interface ParsedArgs {
   quiet: boolean;
   help: boolean;
   version: boolean;
+  /** `sponsor --amount`, in whole dollars. Null means "take the pool's suggestion". */
+  amount: number | null;
+  /** `sponsor --platform`, for a bare `@handle`. Validated in `sponsor.ts`, not here. */
+  platform: string | null;
+  /** `sponsor --json`: one object on stdout and nothing else. */
+  json: boolean;
+  /** False under `--no-open`: print the link and leave the browser alone. */
+  open: boolean;
   /** A usage error, phrased for a terminal. `null` when the argv is fine. */
   error: string | null;
 }
@@ -51,11 +59,18 @@ const EMPTY: ParsedArgs = {
   quiet: false,
   help: false,
   version: false,
+  amount: null,
+  platform: null,
+  json: false,
+  open: true,
   error: null,
 };
 
 /** Commands whose remaining arguments belong to a program the USER named, not to a harness we know. */
 const VERBATIM_COMMANDS = new Set(['run']);
+
+/** The command whose four extra flags are recognised after the command word. See `takeFlag`. */
+const SPONSOR_COMMAND = 'sponsor';
 
 /**
  * Consume one of our flags at `argv[i]`, or report that this token is not ours.
@@ -63,10 +78,64 @@ const VERBATIM_COMMANDS = new Set(['run']);
  * Returns the number of tokens consumed (0 = not ours), and mutates `out`. Handling `--model=x` and
  * `--model x` in one place is the point: two call sites for the same flag is how the two spellings
  * drift apart.
+ *
+ * `sponsorFlags` is false after a HARNESS name, and that is deliberate rather than tidy. `--json`
+ * and `--amount` belong to `sponsor` alone; recognising them everywhere would quietly swallow a
+ * `--json` that Codex or a `run` command meant for itself, and rule 3 (`--`) would be the only way
+ * to get it back. Before the command word, and after `sponsor`, they are ours; after `claude`, they
+ * are the harness's.
  */
-function takeFlag(argv: string[], i: number, out: ParsedArgs): number {
+function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: boolean): number {
   const token = argv[i];
   if (token === undefined) return 0;
+
+  if (sponsorFlags) {
+    switch (token) {
+      case '--json':
+        out.json = true;
+        return 1;
+      case '--no-open':
+        out.open = false;
+        return 1;
+      case '--amount': {
+        const value = argv[i + 1];
+        if (value === undefined || !/^\d+$/.test(value)) {
+          out.error = '--amount needs a whole number of dollars, e.g. --amount 50';
+          return 1;
+        }
+        out.amount = Number(value);
+        return 2;
+      }
+      case '--platform': {
+        const value = argv[i + 1];
+        if (value === undefined || value.startsWith('-')) {
+          out.error = '--platform needs a platform id, e.g. --platform github';
+          return 1;
+        }
+        out.platform = value;
+        return 2;
+      }
+      default:
+        if (token.startsWith('--amount=')) {
+          const value = token.slice('--amount='.length);
+          if (!/^\d+$/.test(value)) {
+            out.error = '--amount needs a whole number of dollars, e.g. --amount 50';
+            return 1;
+          }
+          out.amount = Number(value);
+          return 1;
+        }
+        if (token.startsWith('--platform=')) {
+          const value = token.slice('--platform='.length);
+          if (!value) {
+            out.error = '--platform needs a platform id, e.g. --platform github';
+            return 1;
+          }
+          out.platform = value;
+          return 1;
+        }
+    }
+  }
 
   switch (token) {
     case '--paid':
@@ -122,7 +191,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       out.error = 'Nothing to run. Try `sponsoredtokens --help`.';
       return out;
     }
-    const taken = takeFlag(argv, i, out);
+    const taken = takeFlag(argv, i, out, true);
     if (taken > 0) {
       if (out.error) return out;
       i += taken;
@@ -145,14 +214,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
     return out;
   }
 
-  // ── After the command word: our three launch flags, until `--`.
+  // ── After the command word: our launch flags, until `--`; `sponsor`'s four as well, for it.
+  const sponsorFlags = out.command === SPONSOR_COMMAND;
   let j = 0;
   while (j < tail.length) {
     if (tail[j] === '--') {
       out.rest.push(...tail.slice(j + 1));
       return out;
     }
-    const taken = takeFlag(tail, j, out);
+    const taken = takeFlag(tail, j, out, sponsorFlags);
     if (taken > 0) {
       if (out.error) return out;
       j += taken;
@@ -177,6 +247,8 @@ export function helpText(harnessIds: readonly string[], style: Ink = plainInk())
   ${name} ${command('<harness>')} [args…]     launch a harness against the pool
   ${name} ${command('run')} <cmd…>            export the variables and run anything
 
+  ${name} ${command('sponsor')} <target>      put money in: a payment link for whoever pays
+
 Harnesses: ${harnessIds.map((id) => style.strong(id)).join(', ')}
 
 Options:
@@ -189,6 +261,17 @@ Options:
   ${command('--')}                stop reading options; everything after is passed through
   ${command('--help, -h')}        this
   ${command('--version, -V')}     ${VERSION}
+
+sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
+  ${command('--amount <n>')}      whole dollars. Default: the amount that takes #1 today
+  ${command('--platform <id>')}   for a bare @handle — x, instagram, github, linkedin, youtube,
+                    tiktok, threads, bluesky. X when not given
+  ${command('--json')}            one object on stdout, nothing else. For an agent
+  ${command('--no-open')}         print the link and the QR code; do not open a browser
+
+  No key is needed. The link is an ordinary Stripe Checkout page: give it to the person who
+  pays. They accept the terms (${style.link('https://sponsoredtokens.com/terms')}) there, and the
+  sponsorship goes live within seconds of the payment.
 
 The model is chosen for your tier: the dearest one the pool will pay for, named before every launch.
 Every task run through the pool ends with a line naming the sponsor who paid for it.

@@ -1,5 +1,6 @@
 /**
- * The three worker calls this CLI makes, and nothing else.
+ * The worker calls this CLI makes, and nothing else: the two halves of the device login, the account
+ * read behind `status`, and the two behind `sponsor` — the public leaderboard and the checkout.
  *
  * `fetch` is a Node built-in from 20 and a Bun built-in always, so this file has no dependencies and
  * the compiled binary carries no HTTP client. Every response is treated as untrusted shape — the
@@ -9,6 +10,14 @@
  */
 import type { Endpoints } from './endpoints.ts';
 import { VERSION } from './version.ts';
+import {
+  checkoutResult,
+  refusalFrom,
+  type CheckoutBody,
+  type CheckoutResult,
+  type SponsorBoard,
+  type SponsorRefusal,
+} from './sponsor.ts';
 
 /** Sent on every call so the worker's logs can tell a CLI login from a browser one. */
 export const USER_AGENT = `sponsoredtokens-cli/${VERSION}`;
@@ -91,3 +100,91 @@ export async function fetchStatus(ep: Endpoints, token: string): Promise<Account
 }
 
 // Money formatting lives in `ui.ts` (`money`), with the rest of the presentation.
+
+// ── Sponsoring the pool ───────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /api/leaderboard` — the two numbers `sponsor` needs before it can propose an amount.
+ *
+ * PUBLIC, and read WITHOUT the caller's key: the suggestion and the minimum are the same for
+ * everybody, and a key on a cacheable public read is a key in one more log. Unlike `pool.ts`'s
+ * board this is not decoration — it decides the default amount and the rank — but a failure still
+ * returns null rather than throwing, because `--amount` makes the command work without it.
+ */
+export async function fetchSponsorBoard(ep: Endpoints, timeoutMs = 5000): Promise<SponsorBoard | null> {
+  try {
+    const res = await fetch(`${ep.api}/leaderboard?sort=remaining`, {
+      headers: { accept: 'application/json', 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    return parseSponsorBoard(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** The leaderboard body → the four fields, every one of them checked. */
+export function parseSponsorBoard(body: unknown): SponsorBoard | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const record = body as Record<string, unknown>;
+  const suggestedCents = record.suggestedCents;
+  const minimumCents = record.minimumCents;
+  // Without these two there is no suggestion and no minimum, which is the whole reason for the call.
+  if (typeof suggestedCents !== 'number' || typeof minimumCents !== 'number') return null;
+
+  const rows = Array.isArray(record.sponsors) ? record.sponsors : [];
+  const balances = rows
+    .map((row) => (typeof row === 'object' && row !== null ? (row as Record<string, unknown>).balanceCents : null))
+    .filter((cents): cents is number => typeof cents === 'number' && Number.isFinite(cents))
+    .sort((a, b) => b - a);
+
+  return {
+    balances,
+    total: typeof record.total === 'number' && record.total >= balances.length ? record.total : balances.length,
+    suggestedCents: Math.round(suggestedCents),
+    minimumCents: Math.round(minimumCents),
+  };
+}
+
+/**
+ * `POST /api/sponsor/checkout` — a draft sponsor row and a Stripe Checkout link.
+ *
+ * NO KEY IS REQUIRED: the endpoint is public, because sponsoring the pool is not something an
+ * account does. The key is sent WHEN THERE IS ONE anyway, so the request can be attributed to the
+ * account that asked for it later; the worker ignores it today and that is fine.
+ *
+ * Refusals come back as a body rather than a throw — every one of them is a sentence for the
+ * caller (`sponsor.ts`'s `refusalFrom`), not an exception for the stack.
+ */
+export async function createSponsorCheckout(
+  ep: Endpoints,
+  body: CheckoutBody,
+  token: string | null,
+): Promise<CheckoutResult | SponsorRefusal> {
+  let res: Response;
+  try {
+    res = await fetch(`${ep.api}/sponsor/checkout`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'user-agent': USER_AGENT,
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { code: 'network', message: `The pool could not be reached: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { code: 'bad_response', message: `The pool answered ${res.status} with something that is not JSON: ${text.slice(0, 200)}` };
+  }
+  if (!res.ok) return refusalFrom(res.status, parsed);
+  return checkoutResult(parsed, body.amountCents);
+}

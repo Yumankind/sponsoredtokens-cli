@@ -12,6 +12,7 @@
  */
 import { test, before, after } from 'node:test';
 import { VERSION } from '../src/version.ts';
+import { TERMS_VERSION } from '../src/sponsor.ts';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -30,6 +31,8 @@ const LEADERBOARD = {
     { displayName: 'Papertrail Books', balanceCents: 22_750, lifetimeCents: 40_000 },
   ],
   total: 13,
+  suggestedCents: 48_700,
+  minimumCents: 1_000,
 };
 
 const RECENT = {
@@ -60,6 +63,16 @@ const ACCOUNT = {
   user: { tier: 0, referralLink: 'https://sponsoredtokens.com/r/K3ST' },
 };
 
+/** A Stripe Checkout URL, at the length and shape of a real one — 353 characters. */
+const CHECKOUT_URL =
+  'https://checkout.stripe.com/c/pay/cs_test_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0#fidkdWxOYHwnPyd1blpxYHZxWjA0S0BOfE5%2FUEBLcW5rT2NgTU5ScUFRSjZUR1RmYUlLbGB0YkZOfWJEV0xrVGJcYFVXVGBRZlxDU2JIY2BjcVdWTndqQ0BEUEBSbWtASHJTSHZWQ2JAZ0xEVzFvbnVsPCcpJ3VpbGtuQH11anZgYUxhJz8ncWB2cVo0MEsnKSdpZHxqcHFRfHVgJz8ndmxrYmlgWmxxYGgnKSdga2RnaWBVaWRmYG1qaWFgd3YnP3F3cGB4JSUn';
+
+/** What the last `POST /api/sponsor/checkout` carried: the body, and whether a key rode with it. */
+let lastCheckout: { body: Record<string, unknown>; authorization: string | null } | null = null;
+
+/** Set to make the next checkout refuse, the way the worker refuses. */
+let checkoutRefusal: { status: number; body: unknown } | null = null;
+
 let server: Server;
 let base = '';
 let home = '';
@@ -67,6 +80,26 @@ let home = '';
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0];
+
+    if (path === '/api/sponsor/checkout' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk: Buffer) => (raw += chunk.toString()));
+      req.on('end', () => {
+        lastCheckout = { body: JSON.parse(raw) as Record<string, unknown>, authorization: req.headers.authorization ?? null };
+        const refusal = checkoutRefusal;
+        checkoutRefusal = null;
+        res.writeHead(refusal ? refusal.status : 200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify(
+            refusal
+              ? refusal.body
+              : { url: CHECKOUT_URL, sponsorId: 'sp_7c1f', slug: 'acme.com', amountCents: lastCheckout!.body.amountCents },
+          ),
+        );
+      });
+      return;
+    }
+
     const body =
       path === '/api/leaderboard' ? LEADERBOARD : path === '/api/sponsors/recent' ? RECENT : path === '/api/v1/models' ? MODELS : path === '/api/account/me' ? ACCOUNT : null;
     res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' });
@@ -211,4 +244,155 @@ test('`--help` carries the wordmark and exits 0', async () => {
   assert.ok(stdout.startsWith(`  sponsored/tokens  ${VERSION}`));
   assert.ok(stdout.includes('--quiet, -q'));
   assert.ok(stdout.includes('--model anthropic/claude-haiku-4.5'));
+});
+
+// ── sponsor ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * These run with no key at all — `SPONSOREDTOKENS_API_KEY` is emptied — because the endpoint is
+ * public and an agent that has never logged in must still be able to put money in.
+ */
+const anonymous = { SPONSOREDTOKENS_API_KEY: '' };
+
+test('`sponsor --json` prints ONE object on stdout and nothing else, with the operator as payer', async () => {
+  const { code, stdout, stderr } = await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open'], anonymous);
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout), {
+    target: 'https://acme.com',
+    platform: null,
+    amountCents: 1_000,
+    rank: 4,
+    checkoutUrl: CHECKOUT_URL,
+    shortUrl: null,
+    terms: { version: TERMS_VERSION, payer: 'operator' },
+  });
+  assert.equal(stdout.trim().split('\n').length, 1, 'stdout is one line of JSON');
+  assert.equal(stderr, '', 'nothing was worth saying on stderr either');
+});
+
+test('the request carries the terms, the acceptance and the platform, and no key when there is none', async () => {
+  await run(['sponsor', '@acme', '--platform', 'github', '--amount', '25', '--json', '--no-open'], anonymous);
+  assert.deepEqual(lastCheckout?.body, {
+    target: '@acme',
+    platform: 'github',
+    amountCents: 2_500,
+    termsVersion: TERMS_VERSION,
+    acceptTerms: true,
+  });
+  assert.equal(lastCheckout?.authorization, null);
+});
+
+test('a key, when there is one, rides along so the sponsorship can be attributed later', async () => {
+  await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open']);
+  assert.equal(lastCheckout?.authorization, 'Bearer sk-st-testkey.SECRET');
+});
+
+test('with no --amount the default is the amount that takes #1', async () => {
+  const { stdout } = await run(['sponsor', 'acme.com', '--json', '--no-open'], anonymous);
+  const json = JSON.parse(stdout) as { amountCents: number; rank: number };
+  assert.equal(json.amountCents, 48_700, 'the top balance plus $5, rounded to a whole dollar');
+  assert.equal(json.rank, 1);
+});
+
+test('the human output names the target, the amount, the rank, the link and who pays', async () => {
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '500', '--no-open']);
+  assert.equal(code, 0);
+  assert.ok(stdout.includes(`  sponsored/tokens  ${VERSION}`));
+  assert.ok(stdout.includes('  Sponsor   https://acme.com'));
+  assert.ok(stdout.includes('  Amount    $500'));
+  assert.ok(stdout.includes('  Rank      #1 — the top spot'));
+  assert.ok(stdout.includes(`  Pay       ${CHECKOUT_URL}`));
+  assert.ok(stdout.includes('Give this link to the person who pays'));
+  assert.ok(stdout.includes(`version ${TERMS_VERSION}`));
+  assert.ok(stdout.includes('/terms'));
+});
+
+test('`--quiet` leaves the four facts and drops the wordmark and the explanation', async () => {
+  const { stdout } = await run(['sponsor', 'acme.com', '--amount', '500', '--quiet', '--no-open']);
+  assert.deepEqual(stdout.split('\n').slice(0, -1), [
+    '  Sponsor   https://acme.com',
+    '  Amount    $500',
+    '  Rank      #1 — the top spot',
+    `  Pay       ${CHECKOUT_URL}`,
+  ]);
+});
+
+test('an amount under the pool’s minimum never reaches the pool', async () => {
+  lastCheckout = null;
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '5', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  assert.equal((JSON.parse(stdout) as { code: string }).code, 'amount_below_minimum');
+  assert.equal(lastCheckout, null, 'no Checkout session was minted for a typo');
+});
+
+test('an amount over $100,000 never reaches the pool either', async () => {
+  lastCheckout = null;
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '100001', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  assert.equal((JSON.parse(stdout) as { code: string }).code, 'amount_above_maximum');
+  assert.equal(lastCheckout, null);
+});
+
+test('a refusal from the pool arrives as { error, code } on stdout, exit 1', async () => {
+  checkoutRefusal = { status: 400, body: { error: 'invalid_target', message: 'That is not a valid GitHub handle.' } };
+  const { code, stdout } = await run(['sponsor', '@a/b', '--platform', 'github', '--amount', '10', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  const body = JSON.parse(stdout) as { error: string; code: string };
+  assert.equal(body.code, 'invalid_target');
+  assert.match(body.error, /GitHub handle/);
+});
+
+test('a platform the worker has never heard of is refused before the request', async () => {
+  lastCheckout = null;
+  const { code, stdout } = await run(['sponsor', '@acme', '--platform', 'mastodon', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  assert.equal((JSON.parse(stdout) as { code: string }).code, 'unknown_platform');
+  assert.equal(lastCheckout, null);
+});
+
+test('`sponsor` with no target is a usage error rather than a request', async () => {
+  lastCheckout = null;
+  const { code, stdout } = await run(['sponsor', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  assert.equal((JSON.parse(stdout) as { code: string }).code, 'missing_target');
+  assert.equal(lastCheckout, null);
+});
+
+test('an unreachable pool with an --amount still mints a link; without one it says why', async () => {
+  const named = await run(['sponsor', 'acme.com', '--amount', '10', '--json', '--no-open'], {
+    ...anonymous,
+    SPONSOREDTOKENS_BASE_URL: base,
+  });
+  assert.equal(named.code, 0);
+
+  const guessing = await run(['sponsor', 'acme.com', '--json', '--no-open'], {
+    ...anonymous,
+    SPONSOREDTOKENS_BASE_URL: 'http://127.0.0.1:1',
+  });
+  assert.equal(guessing.code, 1);
+  assert.equal((JSON.parse(guessing.stdout) as { code: string }).code, 'leaderboard_unreachable');
+});
+
+test('a QR code of the link is drawn on a colour terminal, and never into a pipe', async () => {
+  const piped = await run(['sponsor', 'acme.com', '--amount', '10', '--no-open']);
+  assert.ok(!piped.stdout.includes('▀'), 'no picture without colour: contrast could not be guaranteed');
+
+  const coloured = await run(['sponsor', 'acme.com', '--amount', '10', '--no-open'], { FORCE_COLOR: '3', COLUMNS: '120' });
+  const rows = coloured.stdout.split('\n').filter((line) => line.includes('▀'));
+  assert.ok(rows.length > 10, 'the symbol is drawn, two module rows per line');
+});
+
+test('`--json` after another command belongs to that command, not to us', async () => {
+  // `sponsor` is the only command that claims `--json` after the command word. Anywhere else it is
+  // forwarded, which is what stops us stealing a flag a harness meant for itself.
+  const { stdout } = await run([
+    '--quiet',
+    'run',
+    process.execPath,
+    '-e',
+    'console.log(process.argv.slice(1).join(" "))',
+    '--',
+    '--json',
+  ]);
+  assert.equal(stdout.trim(), '--json');
 });

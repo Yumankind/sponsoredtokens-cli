@@ -12,10 +12,11 @@ npx sponsoredtokens login                                        # or just use n
 Then:
 
 ```sh
-sponsoredtokens claude          # Claude Code, on the pool
-sponsoredtokens codex           # Codex CLI
-sponsoredtokens run npm test    # export the variables and run anything
-sponsoredtokens status          # the pool, your budget, your tier, your model
+sponsoredtokens claude            # Claude Code, on the pool
+sponsoredtokens codex             # Codex CLI
+sponsoredtokens run npm test      # export the variables and run anything
+sponsoredtokens status            # the pool, your budget, your tier, your model
+sponsoredtokens sponsor acme.com  # put money back in: a link for whoever pays
 ```
 
 Every command that talks to the pool prints where it stands, three lines, before it gets out of the
@@ -39,6 +40,7 @@ and prints nothing at all when the board cannot be reached.
 | `status` | The pool, your weekly budget, your tier, the model a launch would pick, your referral link. |
 | `claude`, `codex`, `openclaw`, `opencode`, `pi`, `kilo`, `hermes`, `junie`, `t3` | Wire the harness to the pool and launch it. Arguments are forwarded. |
 | `run <cmd…>` | Export every base URL and key, then run any command. |
+| `sponsor <target>` | Put money in. Prints a Stripe Checkout link, and a QR code of it, for whoever pays. No key needed. |
 
 ## Options
 
@@ -52,6 +54,59 @@ and prints nothing at all when the board cannot be reached.
 
 `--paid`, `--model`, `--yes` and `--quiet` are recognised before or after a harness name, but never
 after `--`, and never inside a `run` command — that argv is yours.
+
+## Sponsoring the pool
+
+```sh
+sponsoredtokens sponsor acme.com                       # the amount that takes #1 today
+sponsoredtokens sponsor @acme --platform github --amount 50
+sponsoredtokens sponsor acme.com --json --no-open      # for an agent
+```
+
+```
+  Sponsor   https://acme.com
+  Amount    $487
+  Rank      #1 — the top spot
+  Pay       https://checkout.stripe.com/c/pay/cs_live_…
+```
+
+Followed by a QR code of that link, and one line: give the link to the person who pays. **The
+sponsorship is completed by a human**, on Stripe's own page, with their own card — this command
+mints the link and settles nothing. Whoever pays accepts the [terms](https://sponsoredtokens.com/terms)
+there; the version accepted is stored on the sponsor record.
+
+| | |
+|---|---|
+| `--amount <n>` | Whole dollars. Default: the top remaining balance plus $5, which is what takes #1. Below the pool's minimum ($10) or above $100,000 is refused before any request is made |
+| `--platform <id>` | For a bare `@handle`: `x`, `instagram`, `github`, `linkedin`, `youtube`, `tiktok`, `threads`, `bluesky`. X when not given, and ignored for a URL |
+| `--json` | One object on stdout and nothing else; the wordmark and the closing note move to stderr. Errors are `{ "error", "code" }` on stdout with exit 1 |
+| `--no-open` | Print the link and the QR; do not open a browser. A browser is never opened without a terminal anyway |
+| `--quiet` | Only the four facts: target, amount, rank, link |
+
+```json
+{
+  "target": "https://acme.com",
+  "platform": null,
+  "amountCents": 48700,
+  "rank": 1,
+  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_live_…",
+  "shortUrl": "https://sponsoredtokens.com/p/x7Kq2mP9aB",
+  "terms": { "version": "2026-09", "payer": "operator" }
+}
+```
+
+`payer: "operator"` is the contract: the human who runs the agent is the one who pays the link and
+accepts the terms. **No key is required** — `POST /api/sponsor/checkout` is public. If a key is
+stored it is sent anyway, so the sponsorship can be attributed to that account later.
+
+The QR code is encoded here, with no dependency (`src/qr.ts`, byte mode, error level L, versions
+1–20). It is drawn only on a colour terminal wide enough for it, and nothing is printed otherwise:
+a QR that cannot be guaranteed dark-on-light in the reader's theme, or that wraps, is not a QR
+worth printing. A live Stripe Checkout link is about 479 bytes, which is a version-15 symbol — **85
+columns**. An 80-column window gets the link and no picture.
+
+The [agents page](https://sponsoredtokens.com/docs/agents) has the same thing as one HTTP request,
+with a `sponsor_pool` tool definition to paste into a toolset.
 
 ## Which model
 
@@ -112,6 +167,10 @@ npm test         # node --test, TypeScript run directly
 npm run typecheck
 npm run build    # plain tsc → dist/, which is what `npx sponsoredtokens` runs
 ```
+
+Two constants are mirrored from elsewhere in the monorepo and guarded by tests that read the
+original file: `TERMS_VERSION` from `sponsoredtokens-site/src/content/index.ts`, and `PLATFORM_IDS`
+from `worker/src/sponsored/platforms.ts`.
 
 Release: bump `package.json` **and** `src/version.ts` (a test fails if they disagree), tag
 `cli-v<version>`, push. `.github/workflows/sponsoredtokens-cli.yml` compiles the five binaries with

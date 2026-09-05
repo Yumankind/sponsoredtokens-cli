@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs } from '../src/args.ts';
+import { parseArgs, helpText } from '../src/args.ts';
 
 test('nothing at all is not an error, just no command', () => {
   const parsed = parseArgs([]);
@@ -71,4 +71,75 @@ test('help and version are recognised on their own', () => {
   assert.equal(parseArgs(['-h']).help, true);
   assert.equal(parseArgs(['--version']).version, true);
   assert.equal(parseArgs(['-V']).version, true);
+});
+
+// ── sponsor's four flags ──────────────────────────────────────────────────────────────────────
+
+test('sponsor takes its target and its four flags, in either spelling', () => {
+  const spaced = parseArgs(['sponsor', 'acme.com', '--amount', '50', '--platform', 'github', '--json', '--no-open']);
+  assert.equal(spaced.command, 'sponsor');
+  assert.deepEqual(spaced.rest, ['acme.com']);
+  assert.equal(spaced.amount, 50);
+  assert.equal(spaced.platform, 'github');
+  assert.equal(spaced.json, true);
+  assert.equal(spaced.open, false);
+
+  const equals = parseArgs(['sponsor', '--amount=50', '--platform=github', '@acme']);
+  assert.deepEqual(equals.rest, ['@acme']);
+  assert.equal(equals.amount, 50);
+  assert.equal(equals.platform, 'github');
+});
+
+test('the browser opens unless it is told not to', () => {
+  assert.equal(parseArgs(['sponsor', 'acme.com']).open, true);
+  assert.equal(parseArgs(['sponsor', 'acme.com', '--no-open']).open, false);
+});
+
+test('--amount takes whole dollars and says so when it is given anything else', () => {
+  assert.match(parseArgs(['sponsor', 'acme.com', '--amount']).error ?? '', /whole number of dollars/);
+  assert.match(parseArgs(['sponsor', 'acme.com', '--amount', '12.5']).error ?? '', /whole number of dollars/);
+  assert.match(parseArgs(['sponsor', 'acme.com', '--amount', '-5']).error ?? '', /whole number of dollars/);
+  assert.match(parseArgs(['sponsor', 'acme.com', '--amount=']).error ?? '', /whole number of dollars/);
+});
+
+test('--platform without a value is a named error', () => {
+  assert.match(parseArgs(['sponsor', '@acme', '--platform']).error ?? '', /--platform needs a platform id/);
+  assert.match(parseArgs(['sponsor', '@acme', '--platform', '--json']).error ?? '', /--platform needs a platform id/);
+});
+
+/**
+ * The reason `takeFlag` takes a `sponsorFlags` argument at all: after a HARNESS name these four are
+ * the harness's, and a CLI that swallowed `--json` out of `codex --json` would be a bug reachable
+ * only through `--`.
+ */
+test('sponsor’s flags are not taken off a harness or off a run command', () => {
+  const harness = parseArgs(['codex', '--json', '--amount', '50', '--no-open']);
+  assert.equal(harness.json, false);
+  assert.equal(harness.amount, null);
+  assert.deepEqual(harness.rest, ['--json', '--amount', '50', '--no-open']);
+
+  const command = parseArgs(['run', 'npm', 'test', '--json']);
+  assert.equal(command.json, false);
+  assert.deepEqual(command.rest, ['npm', 'test', '--json']);
+});
+
+test('before the command word they are still ours, like every other flag', () => {
+  const parsed = parseArgs(['--json', '--no-open', 'sponsor', 'acme.com']);
+  assert.equal(parsed.command, 'sponsor');
+  assert.equal(parsed.json, true);
+  assert.equal(parsed.open, false);
+});
+
+test('--quiet works on sponsor the way it works everywhere else', () => {
+  assert.equal(parseArgs(['sponsor', 'acme.com', '--quiet']).quiet, true);
+  assert.equal(parseArgs(['-q', 'sponsor', 'acme.com']).quiet, true);
+});
+
+test('the help text names sponsor and what the link is for', () => {
+  const help = helpText(['claude', 'codex']);
+  assert.match(help, /sponsor <target>/);
+  assert.match(help, /--amount <n>/);
+  assert.match(help, /--platform <id>/);
+  assert.match(help, /--no-open/);
+  assert.match(help, /give it to the person who\n {2}pays/);
 });
