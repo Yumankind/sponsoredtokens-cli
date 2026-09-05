@@ -11,7 +11,7 @@ import type { Endpoints } from './endpoints.ts';
 import { VERSION } from './version.ts';
 
 /** Sent on every call so the worker's logs can tell a CLI login from a browser one. */
-const USER_AGENT = `sponsoredtokens-cli/${VERSION}`;
+export const USER_AGENT = `sponsoredtokens-cli/${VERSION}`;
 
 export interface DeviceStart {
   deviceCode: string;
@@ -90,7 +90,4 @@ export async function fetchStatus(ep: Endpoints, token: string): Promise<Account
   return body;
 }
 
-/** `1234` → `$12.34`. Money is integer cents everywhere in this product. */
-export function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+// Money formatting lives in `ui.ts` (`money`), with the rest of the presentation.

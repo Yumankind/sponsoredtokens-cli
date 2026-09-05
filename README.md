@@ -15,8 +15,20 @@ Then:
 sponsoredtokens claude          # Claude Code, on the pool
 sponsoredtokens codex           # Codex CLI
 sponsoredtokens run npm test    # export the variables and run anything
-sponsoredtokens status          # weekly budget, tier, referral link
+sponsoredtokens status          # the pool, your budget, your tier, your model
 ```
+
+Every command that talks to the pool prints where it stands, three lines, before it gets out of the
+way:
+
+```
+  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors
+  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50
+  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90
+```
+
+`--quiet` turns that off. It is never fetched with your key, never blocks for more than 3 seconds,
+and prints nothing at all when the board cannot be reached.
 
 ## Commands
 
@@ -24,7 +36,7 @@ sponsoredtokens status          # weekly budget, tier, referral link
 |---|---|
 | `login` | Device-code sign-in. Prints a code, opens the browser, stores the key at `~/.sponsoredtokens/config.json` (0600). |
 | `logout` | Forget the stored key. The key on the server is unchanged — rotate it on the account page. |
-| `status` | Weekly budget, model tier, referral link. |
+| `status` | The pool, your weekly budget, your tier, the model a launch would pick, your referral link. |
 | `claude`, `codex`, `openclaw`, `opencode`, `pi`, `kilo`, `hermes`, `junie`, `t3` | Wire the harness to the pool and launch it. Arguments are forwarded. |
 | `run <cmd…>` | Export every base URL and key, then run any command. |
 
@@ -33,12 +45,35 @@ sponsoredtokens status          # weekly budget, tier, referral link
 | | |
 |---|---|
 | `--paid` | Spend your own credits instead of the pool: drops the `sponsored/` model prefix. |
-| `--model <id>` | Override the model. `sponsored/` is added unless `--paid`. |
+| `--model <id>` | Override the model, with or without the `sponsored/` prefix — it is added for you unless `--paid`. A 402 from the pool means the model is above your tier: `--model anthropic/claude-haiku-4.5`. |
 | `--yes`, `-y` | Install a missing harness without asking. Never used for `curl \| bash` installers. |
+| `--quiet`, `-q` | No pool block and no model line before the harness starts. |
 | `--` | Stop reading options. Everything after is forwarded verbatim. |
 
-`--paid`, `--model` and `--yes` are recognised before or after a harness name, but never after `--`,
-and never inside a `run` command — that argv is yours.
+`--paid`, `--model`, `--yes` and `--quiet` are recognised before or after a harness name, but never
+after `--`, and never inside a `run` command — that argv is yours.
+
+## Which model
+
+The pool gates models by tier, so the default is not a constant: before a launch the CLI reads
+`GET /api/v1/models` with your key and takes the **dearest sponsored model at or below your tier** —
+an Anthropic one for Claude Code, an OpenAI one for Codex, the dearest of any vendor otherwise — and
+says which, and why:
+
+```
+  Model     sponsored/anthropic/claude-haiku-4.5 — the best at tier 0; 2 referrals unlock anthropic/claude-sonnet-5
+```
+
+The answer is cached in `~/.sponsoredtokens/config.json` for an hour. If the list cannot be read the
+CLI falls back to `sponsored/anthropic/claude-haiku-4.5`, which is tier 0 — never to a model your
+tier would refuse, because that is a 402 in the middle of somebody's first session.
+
+## Colour
+
+ANSI when stdout (or stderr, for the stream being written to) is a terminal, `NO_COLOR` is unset and
+`TERM` is not `dumb`; `FORCE_COLOR` turns it on anyway, `FORCE_COLOR=0` off. The accent is the brand
+orange `#D97757` in truecolour, its 256-colour neighbour where `COLORTERM` says nothing, and plain
+bold below that. Windows 10+ is detected, never switched into VT mode by us.
 
 ## Environment
 
@@ -46,6 +81,7 @@ and never inside a `run` command — that argv is yours.
 |---|---|
 | `SPONSOREDTOKENS_API_KEY` | Use this key instead of the stored one. The way to run in CI. |
 | `SPONSOREDTOKENS_BASE_URL` | Point at another deployment (a `wrangler dev`, say). Defaults to `https://sponsoredtokens.com`. |
+| `NO_COLOR`, `FORCE_COLOR` | Turn the colour off / on. See **Colour**. |
 
 ## Which harnesses are wired how
 

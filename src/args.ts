@@ -6,7 +6,8 @@
  * the third is the escape hatch that makes the first two safe:
  *
  *   1. Flags BEFORE the command word are always ours.
- *   2. For a harness command, `--paid`, `--model`, `--yes` are also recognized AFTER it — because
+ *   2. For a harness command, `--paid`, `--model`, `--yes`, `--quiet` are also recognized AFTER it —
+ *      because
  *      `sponsoredtokens claude --paid` is what a person will actually type, and refusing it in
  *      favour of `sponsoredtokens --paid claude` would be a rule nobody remembers. A harness that
  *      has its own `--model` therefore loses it to us, which is the right way round: choosing the
@@ -20,6 +21,7 @@
  * for `run`, parsing stops at the command word.
  */
 import { VERSION } from './version.ts';
+import { banner, plainInk, type Ink } from './ui.ts';
 
 export interface ParsedArgs {
   /** `login` | `logout` | `status` | a harness id | `run` | null when nothing was given. */
@@ -32,6 +34,8 @@ export interface ParsedArgs {
   model: string | null;
   /** Do not ask before installing a missing harness. */
   yes: boolean;
+  /** Skip the pool block and the model note before a launch: output only the harness's own. */
+  quiet: boolean;
   help: boolean;
   version: boolean;
   /** A usage error, phrased for a terminal. `null` when the argv is fine. */
@@ -44,6 +48,7 @@ const EMPTY: ParsedArgs = {
   paid: false,
   model: null,
   yes: false,
+  quiet: false,
   help: false,
   version: false,
   error: null,
@@ -70,6 +75,10 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs): number {
     case '--yes':
     case '-y':
       out.yes = true;
+      return 1;
+    case '--quiet':
+    case '-q':
+      out.quiet = true;
       return 1;
     case '--help':
     case '-h':
@@ -155,26 +164,33 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return out;
 }
 
-export function helpText(harnessIds: readonly string[]): string {
-  return `sponsoredtokens ${VERSION} — run your coding agent on tokens somebody else paid for.
+export function helpText(harnessIds: readonly string[], style: Ink = plainInk()): string {
+  const command = (text: string): string => style.code(text);
+  const name = style.muted('sponsoredtokens');
+  return `${banner(VERSION, style)}
+  ${style.muted('run your coding agent on tokens somebody else paid for.')}
 
-  sponsoredtokens login                 sign in and store your API key
-  sponsoredtokens status                weekly budget, tier, referral link
-  sponsoredtokens logout                forget the stored key
+  ${name} ${command('login')}                 sign in and store your API key
+  ${name} ${command('status')}                the pool, your budget, your tier, your model
+  ${name} ${command('logout')}                forget the stored key
 
-  sponsoredtokens <harness> [args…]     launch a harness against the pool
-  sponsoredtokens run <cmd…>            export the variables and run anything
+  ${name} ${command('<harness>')} [args…]     launch a harness against the pool
+  ${name} ${command('run')} <cmd…>            export the variables and run anything
 
-Harnesses: ${harnessIds.join(', ')}
+Harnesses: ${harnessIds.map((id) => style.strong(id)).join(', ')}
 
 Options:
-  --paid            spend your own credits instead of the pool (drops the sponsored/ prefix)
-  --model <id>      override the model; sponsored/ is added unless --paid
-  --yes, -y         install a missing harness without asking
-  --                stop reading options; everything after is passed through
-  --help, -h        this
-  --version, -V     ${VERSION}
+  ${command('--paid')}            spend your own credits instead of the pool (drops the sponsored/ prefix)
+  ${command('--model <id>')}      override the model, with or without the sponsored/ prefix —
+                    sponsored/ is added for you unless --paid. A 402 from the pool means
+                    the model is above your tier: ${style.strong('--model anthropic/claude-haiku-4.5')}
+  ${command('--yes, -y')}         install a missing harness without asking
+  ${command('--quiet, -q')}       no pool block and no model note before the harness starts
+  ${command('--')}                stop reading options; everything after is passed through
+  ${command('--help, -h')}        this
+  ${command('--version, -V')}     ${VERSION}
 
+The model is chosen for your tier: the dearest one the pool will pay for, named before every launch.
 Every task run through the pool ends with a line naming the sponsor who paid for it.
 `;
 }

@@ -3,15 +3,24 @@
  * effects. The executable itself is `cli.ts`, which does nothing but call `main`.
  *
  * Everything with a decision in it lives in a pure module (`args`, `harnesses`, `codex-config`,
- * `json-config`, `exec`'s planners) and is unit-tested without a filesystem or a network. This file
- * is the impure shell: it reads the config, applies a plan, and gets out of the way of the harness.
+ * `json-config`, `ui`, `pool`, `models`, `exec`'s planners) and is unit-tested without a filesystem
+ * or a network. This file is the impure shell: it reads the config, applies a plan, and gets out of
+ * the way of the harness.
  *
  * ── WHAT GOES TO STDOUT AND WHAT GOES TO STDERR ─────────────────────────────────────────────────
  *
  * Only `status` and `--help` print to stdout, because only they are output somebody might pipe.
- * Every launch banner, every "installing…" line and every warning goes to STDERR — a harness run
- * with `-p` and piped into `jq` must not find our banner at the top of its JSON. This is the one
- * rule in this file that will break something if it is forgotten.
+ * Every launch banner, every "installing…" line, the pool block and every warning goes to STDERR —
+ * a harness run with `-p` and piped into `jq` must not find our banner at the top of its JSON. This
+ * is the one rule in this file that will break something if it is forgotten. It is also why the
+ * colour is built per stream (`errInk` / `outInk`, see `ui.ts`).
+ *
+ * ── THE THREE NETWORK CALLS THAT ARE ALLOWED TO FAIL ────────────────────────────────────────────
+ *
+ * The leaderboard, the recent sponsors and the model list are decoration and defaults, not the
+ * command. Each has a timeout and each returns "nothing" rather than throwing, so an offline laptop
+ * still logs in, still launches, and simply says less. `--quiet` skips the two decorative ones
+ * entirely.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -22,11 +31,14 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs, helpText } from './args.ts';
 import { VERSION } from './version.ts';
 import { endpoints, type Endpoints } from './endpoints.ts';
-import { clearConfig, readConfig, resolveKey, writeConfig, configLocation } from './config-file.ts';
-import { fetchStatus, formatCents, pollDevice, startDevice } from './api.ts';
+import { clearConfig, readConfig, readModelPlan, resolveKey, writeConfig, writeModelPlan, configLocation } from './config-file.ts';
+import { fetchStatus, pollDevice, startDevice } from './api.ts';
 import { mergeCodexConfig } from './codex-config.ts';
 import { mergeJsonConfig } from './json-config.ts';
 import { resolveExecutable, runChild } from './exec.ts';
+import { banner, createSpinner, errInk, money, outInk, row, spinnerFrames, suggestHarness, type Ink } from './ui.ts';
+import { boardLines, fetchBoard, EMPTY_BOARD, type Board } from './pool.ts';
+import { chooseModel, fetchModelPlan, unlockNote, type ModelChoice, type ModelPlan } from './models.ts';
 import {
   DEFAULT_MODEL,
   HARNESS_IDS,
@@ -42,6 +54,34 @@ const out = (line = ''): void => void process.stdout.write(`${line}\n`);
 const note = (line = ''): void => void process.stderr.write(`${line}\n`);
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ── The two soft reads ────────────────────────────────────────────────────────────────────────
+
+/** The board, or an empty one — `--quiet` does not even ask. */
+async function board(ep: Endpoints, quiet: boolean): Promise<Board> {
+  return quiet ? EMPTY_BOARD : fetchBoard(ep);
+}
+
+/** Print the pool block with a blank line above it, when there is one. */
+function printBoard(lines: string[], write: (line?: string) => void): void {
+  if (lines.length === 0) return;
+  write('');
+  for (const line of lines) write(line);
+}
+
+/**
+ * The model plan: the config-file cache first, the pool second, nothing third.
+ *
+ * The cache is what keeps a launch instant — an hour's worth of `sponsoredtokens claude` costs one
+ * request in total (`config-file.ts`), and a tier only changes when a referral lands.
+ */
+async function modelPlan(ep: Endpoints, token: string): Promise<ModelPlan | null> {
+  const cached = readModelPlan();
+  if (cached) return cached;
+  const fresh = await fetchModelPlan(ep, token);
+  if (fresh) writeModelPlan(fresh);
+  return fresh;
+}
 
 // ── login ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -69,65 +109,100 @@ function openBrowser(url: string): void {
   }
 }
 
-async function login(ep: Endpoints): Promise<number> {
+/** Is this harness already on the PATH? Used only to name one in the `Try:` line. */
+function installed(bin: string): boolean {
+  return resolveExecutable(bin, { platform: process.platform, env: process.env }) !== null;
+}
+
+async function login(ep: Endpoints, quiet: boolean): Promise<number> {
+  const style = errInk();
   const started = await startDevice(ep);
 
   note('');
-  note(`  Your code:  ${started.userCode}`);
-  note(`  Open:       ${started.verifyUrl}`);
+  note(banner(VERSION, style));
+  note('');
+  note(`  ${style.muted('Your code:'.padEnd(12))}${style.code(started.userCode)}`);
+  note(`  ${style.muted('Open:'.padEnd(12))}${style.link(started.verifyUrl)}`);
   note('');
   note('  Sign in there and approve the code. If you already have an API key, approving');
   note('  here replaces it — the old one stops working immediately.');
   note('');
   openBrowser(started.verifyUrl);
 
+  // One line that animates on a terminal and is one printed sentence anywhere else — see `ui.ts`.
+  const spinner = createSpinner(process.stderr, 'Waiting for approval…', {
+    style,
+    frames: spinnerFrames(process.env, process.platform),
+  });
+  spinner.start();
+
   const deadline = Date.now() + started.expiresIn * 1000;
-  process.stderr.write('  Waiting');
-  while (Date.now() < deadline) {
-    await sleep(started.interval * 1000);
-    process.stderr.write('.');
-    const result = await pollDevice(ep, started.deviceCode);
-    if (result.status === 'pending') continue;
-    note('');
-    if (result.status === 'expired') {
-      note('  That login expired. Run `sponsoredtokens login` again.');
-      return 1;
+  try {
+    while (Date.now() < deadline) {
+      await sleep(started.interval * 1000);
+      const result = await pollDevice(ep, started.deviceCode);
+      if (result.status === 'pending') continue;
+      spinner.stop();
+      if (result.status === 'expired') {
+        note('  That login expired. Run `sponsoredtokens login` again.');
+        return 1;
+      }
+      const file = writeConfig({ token: result.token, keyId: result.keyId, savedAt: new Date().toISOString() });
+      note(`  Signed in. Key ${style.code(result.keyId)} saved to ${file}.`);
+      if (result.rotated) note('  Your previous key was replaced and no longer works.');
+
+      printBoard(boardLines(await board(ep, quiet), style), note);
+      note('');
+      note(`  Try:  ${style.code(`sponsoredtokens ${suggestHarness(installed)}`)}`);
+      return 0;
     }
-    const file = writeConfig({ token: result.token, keyId: result.keyId, savedAt: new Date().toISOString() });
-    note(`  Signed in. Key ${result.keyId} saved to ${file}.`);
-    if (result.rotated) note('  Your previous key was replaced and no longer works.');
-    note('');
-    note('  Try:  sponsoredtokens claude');
-    return 0;
+  } finally {
+    // A throw from `pollDevice` must not leave a timer redrawing a line forever.
+    spinner.stop();
   }
-  note('');
   note('  That login expired. Run `sponsoredtokens login` again.');
   return 1;
 }
 
 // ── status ────────────────────────────────────────────────────────────────────────────────────
 
-async function status(ep: Endpoints): Promise<number> {
+async function status(ep: Endpoints, quiet: boolean): Promise<number> {
+  const style = outInk();
   const key = resolveKey();
   if (!key) {
     note('Not signed in. Run `sponsoredtokens login`.');
     return 1;
   }
-  const account = await fetchStatus(ep, key.token);
+
+  // All three at once: the account read is the only one that can fail the command.
+  const [account, poolBoard, plan] = await Promise.all([fetchStatus(ep, key.token), board(ep, quiet), modelPlan(ep, key.token)]);
 
   // Read every field defensively: this endpoint belongs to the account API and may grow or rename.
   const budget = account.budget ?? {};
   const user = account.user ?? {};
+
   out('');
+  out(banner(VERSION, style));
+  printBoard(boardLines(poolBoard, style), out);
+  out('');
+
   if (typeof budget.remainingCents === 'number' && typeof budget.weeklyCents === 'number') {
-    out(`  Weekly budget   ${formatCents(budget.remainingCents)} left of ${formatCents(budget.weeklyCents)}`);
+    out(row('Budget', `${style.accent(money(budget.remainingCents))} left of ${style.strong(money(budget.weeklyCents))} this week`, style));
   } else if (typeof budget.remainingCents === 'number') {
-    out(`  Weekly budget   ${formatCents(budget.remainingCents)} left`);
+    out(row('Budget', `${style.accent(money(budget.remainingCents))} left this week`, style));
   }
-  if (budget.resetsAt) out(`  Resets          ${budget.resetsAt}`);
-  if (user.tier !== undefined) out(`  Model tier      ${user.tier}`);
-  if (user.referralLink) out(`  Referral link   ${user.referralLink}`);
-  out(`  Key            ${key.source === 'env' ? 'from SPONSOREDTOKENS_API_KEY' : (readConfig()?.keyId ?? 'stored')}`);
+  if (budget.resetsAt) out(row('Resets', budget.resetsAt, style));
+
+  const tier = plan ? plan.tier : user.tier;
+  if (tier !== undefined) {
+    const unlock = unlockNote(plan);
+    out(row('Tier', `${style.strong(String(tier))}${unlock ? `${style.muted(' — ')}${unlock}` : ''}`, style));
+  }
+  // What a launch would pick right now, so the number above and the id below cannot disagree.
+  out(row('Model', style.strong(resolveModel(chooseModel(plan, 'claude').model, null, false)), style));
+
+  if (user.referralLink) out(row('Referral', style.link(user.referralLink), style));
+  out(row('Key', style.code(key.source === 'env' ? 'from SPONSOREDTOKENS_API_KEY' : (readConfig()?.keyId ?? 'stored')), style));
   out('');
   return 0;
 }
@@ -237,7 +312,24 @@ async function locate(plan: LaunchPlan, yes: boolean): Promise<string | null> {
   return resolveExecutable(plan.bin, { platform: process.platform, env: process.env });
 }
 
-async function launch(plan: LaunchPlan, rest: string[], ep: Endpoints, yes: boolean, banner: string): Promise<number> {
+interface LaunchOptions {
+  yes: boolean;
+  quiet: boolean;
+  /** The one line naming what is about to run. Already styled. */
+  banner: string;
+  /** Why this model, when we chose it. Null under `--model`, `--paid` and `--quiet`. */
+  modelNote: string | null;
+}
+
+/**
+ * The block printed immediately before `exec`, and the last thing this CLI says.
+ *
+ * It is fetched HERE rather than in `main` so that a launch which stops early — an unsupported
+ * harness, a missing binary, an unparseable config — never pays for a network call or prints a
+ * leaderboard above its own error.
+ */
+async function launch(plan: LaunchPlan, rest: string[], ep: Endpoints, options: LaunchOptions): Promise<number> {
+  const style = errInk();
   if (plan.unsupported) {
     note('');
     note(`  ${plan.unsupported.replace(/\n/g, '\n  ')}`);
@@ -245,7 +337,7 @@ async function launch(plan: LaunchPlan, rest: string[], ep: Endpoints, yes: bool
     return 1;
   }
 
-  const binary = await locate(plan, yes);
+  const binary = await locate(plan, options.yes);
   if (!binary) return 127; // the shell's own "command not found".
 
   if (!applyConfigs(plan, ep)) return 1;
@@ -256,8 +348,22 @@ async function launch(plan: LaunchPlan, rest: string[], ep: Endpoints, yes: bool
     if (code !== 0) note(`  \`${plan.bin} ${args.slice(0, 2).join(' ')}\` exited ${code} — launching anyway.`);
   }
 
-  note(banner);
+  if (!options.quiet) {
+    printBoard(boardLines(await fetchBoard(ep), style), note);
+    if (options.modelNote) note(row('Model', style.muted(options.modelNote), style));
+    note('');
+  }
+  note(options.banner);
   return runChild(binary, [...plan.args, ...rest], env);
+}
+
+/** `  sponsoredtokens · claude · sponsored/… · the pool pays` — identical text without colour. */
+function launchBanner(style: Ink, parts: string[]): string {
+  const dot = style.muted(' · ');
+  const [first, ...others] = parts;
+  return `  ${style.strong('sponsored')}${style.accent('/')}${style.strong('tokens')}${dot}${style.strong(first ?? '')}${others
+    .map((part) => `${dot}${style.muted(part)}`)
+    .join('')}`;
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────────────────────
@@ -273,7 +379,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (parsed.help || !parsed.command) {
-    out(helpText(HARNESS_IDS));
+    out(helpText(HARNESS_IDS, outInk()));
     return parsed.help ? 0 : 1; // no arguments at all is a usage error, not a successful run.
   }
 
@@ -284,8 +390,8 @@ export async function main(argv: string[]): Promise<number> {
     note(clearConfig() ? `Removed ${file}. Your key on the server is unchanged — rotate it on the account page.` : 'Nothing stored; already signed out.');
     return 0;
   }
-  if (parsed.command === 'login') return login(ep);
-  if (parsed.command === 'status') return status(ep);
+  if (parsed.command === 'login') return login(ep, parsed.quiet);
+  if (parsed.command === 'status') return status(ep, parsed.quiet);
 
   // Everything below needs a key.
   const key = resolveKey();
@@ -294,13 +400,26 @@ export async function main(argv: string[]): Promise<number> {
     return 1;
   }
 
+  /**
+   * The tier-checked default, and the two cases that skip the lookup entirely.
+   *
+   * `--paid` means the caller's own credits pay, and a tier is a limit on what the POOL will pay
+   * for; `--model` means they have already answered the question. Both cases keep the old constants
+   * and cost no request.
+   */
+  const chosen: ModelChoice | null = parsed.paid || parsed.model ? null : chooseModel(await modelPlan(ep, key.token), parsed.command);
+
   const ctx: PlanContext = {
     key: key.token,
     endpoints: ep,
-    model: resolveModel(DEFAULT_MODEL, parsed.model, parsed.paid),
+    model: resolveModel(chosen?.model ?? DEFAULT_MODEL, parsed.model, parsed.paid),
     paid: parsed.paid,
     modelOverride: parsed.model,
+    tierModel: chosen?.model ?? null,
+    tierSmallModel: chosen?.small ?? null,
   };
+  const style = errInk();
+  const payer = parsed.paid ? 'your own credits' : 'the pool pays';
 
   if (parsed.command === 'run') {
     const [command, ...rest] = parsed.rest;
@@ -308,8 +427,12 @@ export async function main(argv: string[]): Promise<number> {
       note('`run` needs a command: sponsoredtokens run <cmd…>');
       return 2;
     }
-    const plan = planForRun(ctx, command);
-    return launch(plan, rest, ep, parsed.yes, `  sponsoredtokens · ${command} · ${parsed.paid ? 'your own credits' : 'the pool pays'}`);
+    return launch(planForRun(ctx, command), rest, ep, {
+      yes: parsed.yes,
+      quiet: parsed.quiet,
+      banner: launchBanner(style, [command, payer]),
+      modelNote: chosen?.reason ?? null,
+    });
   }
 
   if (!isHarness(parsed.command)) {
@@ -317,11 +440,10 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const plan = planFor(parsed.command, ctx)!;
-  return launch(
-    plan,
-    parsed.rest,
-    ep,
-    parsed.yes,
-    `  sponsoredtokens · ${parsed.command} · ${plan.model} · ${parsed.paid ? 'your own credits' : 'the pool pays'}`,
-  );
+  return launch(plan, parsed.rest, ep, {
+    yes: parsed.yes,
+    quiet: parsed.quiet,
+    banner: launchBanner(style, [parsed.command, plan.model, payer]),
+    modelNote: chosen?.reason ?? null,
+  });
 }

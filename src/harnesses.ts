@@ -30,6 +30,11 @@
  * the caller's own credits pay instead. That default is the whole reason the CLI exists: at launch
  * a sponsoredtokens.com wallet is empty, so an unprefixed id answers 402, and nobody should meet
  * that by accident on their first run.
+ *
+ * WHICH id is no longer a constant: the pool gates models by TIER, and the constants below are a
+ * fallback for `--paid` and for an unreachable model list only. `models.ts` reads the caller's tier
+ * and puts the answer on `PlanContext.tierModel`; see its header for why a stale constant here was
+ * a 402 on a new account's very first launch.
  */
 import type { Endpoints } from './endpoints.ts';
 import { CODEX_PROVIDER_ID } from './codex-config.ts';
@@ -114,6 +119,15 @@ export interface PlanContext {
   paid: boolean;
   /** The raw `--model` value, so a harness with its own default can resolve it differently. */
   modelOverride: string | null;
+  /**
+   * The default the POOL chose for this harness at this account's tier (`models.ts`), bare.
+   *
+   * Absent means "use the constant below", which is what `--paid` does: a tier is a limit on what
+   * the pool will pay for and says nothing about what the caller may buy with their own credits.
+   */
+  tierModel?: string | null;
+  /** Likewise for Claude Code's background model. */
+  tierSmallModel?: string | null;
 }
 
 /**
@@ -167,7 +181,7 @@ const BUILDERS: Record<string, Builder> = {
    */
   claude: (ctx) => {
     const plan = base('claude', 'claude', ctx);
-    const small = resolveModel(DEFAULT_SMALL_MODEL, null, ctx.paid);
+    const small = resolveModel(ctx.tierSmallModel ?? DEFAULT_SMALL_MODEL, null, ctx.paid);
     plan.env.ANTHROPIC_MODEL = ctx.model;
     plan.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = small;
     // Deprecated but still read by older installs — see the header.
@@ -183,7 +197,7 @@ const BUILDERS: Record<string, Builder> = {
    */
   codex: (ctx) => {
     const plan = base('codex', 'codex', ctx);
-    const model = resolveModel(DEFAULT_CODEX_MODEL, ctx.modelOverride, ctx.paid);
+    const model = resolveModel(ctx.tierModel ?? DEFAULT_CODEX_MODEL, ctx.modelOverride, ctx.paid);
     plan.model = model;
     plan.configs.push({ segments: ['.codex', 'config.toml'], format: 'codex-toml', label: '~/.codex/config.toml' });
     plan.args = ['-c', `model_provider=${CODEX_PROVIDER_ID}`, '-c', `model=${model}`];
@@ -357,7 +371,7 @@ const BUILDERS: Record<string, Builder> = {
    */
   t3: (ctx) => {
     const plan = base('t3', 't3', ctx);
-    const small = resolveModel(DEFAULT_SMALL_MODEL, null, ctx.paid);
+    const small = resolveModel(ctx.tierSmallModel ?? DEFAULT_SMALL_MODEL, null, ctx.paid);
     plan.env.ANTHROPIC_MODEL = ctx.model;
     plan.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = small;
     plan.env.ANTHROPIC_SMALL_FAST_MODEL = small;
