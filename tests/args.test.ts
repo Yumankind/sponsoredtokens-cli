@@ -159,12 +159,14 @@ test('the help text names sponsor and what the link is for', () => {
   assert.match(help, /give it to the person who\n {2}pays/);
 });
 
-test('the help text documents --audience: the default, the two minimums and the groups', () => {
+test('the help text documents --audience: the default, both prices and the groups', () => {
   const help = helpText(['claude', 'codex']);
   assert.match(help, /--audience <a>/);
   assert.match(help, /--audience PT,ES/);
-  assert.match(help, /\$100 minimum/);
-  assert.match(help, /\$10 minimum/);
+  assert.match(help, /\$100 minimum/, 'the flat global price');
+  assert.match(help, /\$10 for each/, 'and that a local one is priced per country');
+  assert.match(help, /PT,ES is \$20/, 'with the arithmetic shown once');
+  assert.match(help, /More than 60 countries/, 'and where a list stops being local');
   for (const group of ['eu', 'eea', 'dach', 'nordics', 'iberia', 'uk-ie', 'north-america', 'latam', 'apac', 'middle-east', 'africa', 'english']) {
     assert.ok(help.includes(group), `the help text should name the ${group} group`);
   }

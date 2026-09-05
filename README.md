@@ -121,8 +121,9 @@ sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
 
 A **global** sponsor is on every board there is, and on the home page for everybody: $100 minimum. A
 **local** sponsor is on the local boards of the countries they named and nowhere else, and is drawn
-for the pool's tasks that come from those countries: $10 minimum. A local sponsor still appears on
-the global board too, ranked by balance like anyone else. The audience is set at payment, and the
+for the pool's tasks that come from those countries: **$10 for each country**. One country is $10,
+three are $30, the full sixty are $600 — a country is a board, and each board costs the same. A
+local sponsor still appears on the global board too, ranked by balance like anyone else. The audience is set at payment, and the
 only way to change it is to recharge with a different one.
 
 Country codes are ISO-3166-1 alpha-2, in any case, de-duplicated and sorted before they are sent:
@@ -136,9 +137,10 @@ refused: you are sold the thing you were describing. The pool applies the same r
 count; the CLI applies it early so the minimum and the board are right before anything is posted.
 
 Anything else is refused before a Checkout session exists, by name rather than by being dropped: an
-unknown country, an empty entry, `global` mixed with countries. The default
-amount, the "#N" and the minimum all come from the board you chose — for `--audience PT,ES` that is
-the local board of **PT**, the first country you named.
+unknown country, an empty entry, `global` mixed with countries, an amount under what the countries
+come to — `--audience PT,ES,FR --amount 20` is answered with *3 countries need at least $30*. The
+"#N" and the board come from the first country you named, `PT` for `--audience PT,ES`; the default
+amount is that board's suggestion, never proposed below what the countries cost.
 
 The QR code is encoded here, with no dependency (`src/qr.ts`, byte mode, error level L, versions
 1–20). It is drawn only on a colour terminal wide enough for it, and nothing is printed otherwise:

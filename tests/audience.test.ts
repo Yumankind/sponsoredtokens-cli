@@ -159,7 +159,7 @@ test('the line is the boundary: 60 is local, 61 is the world', () => {
   const local = choice(codes(LOCAL_MAX_COUNTRIES).join(','));
   assert.equal(Array.isArray(local.audience) && local.audience.length, 60);
   assert.equal(local.collapsedFrom, null);
-  assert.equal(minimumCentsFor(local.audience), MIN_LOCAL_CENTS);
+  assert.equal(minimumCentsFor(local.audience), MIN_LOCAL_CENTS * 60, 'sixty boards, sixty times $10');
 
   const world = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
   assert.equal(world.audience, 'global');
@@ -224,11 +224,20 @@ test('a group small enough to stay local does', () => {
 const GLOBAL_BOARD: SponsorBoard = { balances: [48_200, 31_500], total: 13, suggestedCents: 48_700, minimumCents: MIN_GLOBAL_CENTS };
 const LOCAL_BOARD: SponsorBoard = { balances: [4_000, 1_500], total: 2, suggestedCents: 4_500, minimumCents: MIN_LOCAL_CENTS };
 
-test('the two minimums are the contract’s: $100 everywhere, $10 in the countries you name', () => {
+test('the minimum is $100 everywhere, or $10 for EACH country you name', () => {
   assert.equal(MIN_GLOBAL_CENTS, 10_000);
   assert.equal(MIN_LOCAL_CENTS, 1_000);
   assert.equal(minimumCentsFor('global'), 10_000);
   assert.equal(minimumCentsFor(['PT']), 1_000);
+  assert.equal(minimumCentsFor(['ES', 'FR', 'PT']), 3_000, 'three boards, $30');
+  assert.equal(minimumCentsFor(choice('eu').audience), 27_000, 'the EU is 27 boards, $270');
+});
+
+test('the local minimum stays flat per country all the way to the sixtieth', () => {
+  for (const n of [1, 2, 3, 10, 59, 60]) {
+    assert.equal(minimumCentsFor(codes(n)), n * MIN_LOCAL_CENTS, `${n} countries`);
+  }
+  assert.equal(minimumCentsFor(codes(LOCAL_MAX_COUNTRIES)), 60_000, 'sixty countries is $600');
 });
 
 test('$50 is below the global minimum and the refusal says which minimum, and why', () => {
@@ -239,13 +248,27 @@ test('$50 is below the global minimum and the refusal says which minimum, and wh
   assert.match(refusal.message, /--audience/, 'and it names the cheaper way to be seen somewhere');
 });
 
-test('the same $50 is fine locally, and $5 is not', () => {
+test('the same $50 is fine for one country, and $5 is not', () => {
   assert.equal(resolveAmountCents({ dollars: 50, board: LOCAL_BOARD, audience: ['PT'] }), 5_000);
-  assert.equal(resolveAmountCents({ dollars: 10, board: LOCAL_BOARD, audience: ['ES', 'PT'] }), 1_000);
   const refusal = resolveAmountCents({ dollars: 5, board: LOCAL_BOARD, audience: ['PT'] });
   assert.ok(isRefusal(refusal) && refusal.code === 'amount_below_minimum');
-  assert.match(refusal.message, /local/);
-  assert.match(refusal.message, /\$10\b/);
+  assert.match(refusal.message, /1 country needs at least \$10\b/);
+});
+
+test('$20 buys two countries and not three — the refusal counts them back', () => {
+  assert.equal(resolveAmountCents({ dollars: 20, board: LOCAL_BOARD, audience: ['ES', 'PT'] }), 2_000);
+  const refusal = resolveAmountCents({ dollars: 20, board: LOCAL_BOARD, audience: ['ES', 'FR', 'PT'] });
+  assert.ok(isRefusal(refusal) && refusal.code === 'amount_below_minimum');
+  assert.match(refusal.message, /3 countries need at least \$30\b/);
+  assert.match(refusal.message, /You asked for \$20\b/);
+});
+
+test('a big group costs what its countries come to, and says so', () => {
+  const eu = choice('eu').audience;
+  const refusal = resolveAmountCents({ dollars: 100, board: LOCAL_BOARD, audience: eu });
+  assert.ok(isRefusal(refusal) && refusal.code === 'amount_below_minimum');
+  assert.match(refusal.message, /27 countries need at least \$270\b/);
+  assert.equal(resolveAmountCents({ dollars: 270, board: LOCAL_BOARD, audience: eu }), 27_000);
 });
 
 test('a board asking for more than its audience’s floor wins, so nothing is minted to be refused', () => {
@@ -259,6 +282,15 @@ test('the default amount is the board’s own suggestion — the local one for a
   assert.equal(resolveAmountCents({ dollars: null, board: LOCAL_BOARD, audience: ['PT'] }), 4_500);
   assert.equal(rankFor(LOCAL_BOARD, 4_500).position, 1, 'which is the amount that takes #1 on THAT board');
   assert.equal(resolveAmountCents({ dollars: null, board: GLOBAL_BOARD, audience: 'global' }), 48_700);
+});
+
+test('the default is never proposed below what the countries cost', () => {
+  // The local board suggests $45. Twenty-seven countries cost $270, so the suggestion cannot stand:
+  // proposing it would mean this same function refusing the amount it had just put forward.
+  const eu = choice('eu').audience;
+  assert.equal(resolveAmountCents({ dollars: null, board: LOCAL_BOARD, audience: eu }), 27_000);
+  // One country is $10, below the $45 suggestion, so the suggestion wins there.
+  assert.equal(resolveAmountCents({ dollars: null, board: LOCAL_BOARD, audience: ['PT'] }), 4_500);
 });
 
 // ── What the rank line and the request carry ──────────────────────────────────────────────────

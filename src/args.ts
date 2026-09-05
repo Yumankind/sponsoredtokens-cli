@@ -303,8 +303,9 @@ Options:
 sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
   ${command('--amount <n>')}      whole dollars. Default: the amount that takes #1 on your board today
   ${command('--audience <a>')}    ${style.strong('global')} (the default, every board, ${money(MIN_GLOBAL_CENTS)} minimum), or the countries
-                    you want to be seen in: ${style.strong('--audience PT,ES')} — those local boards only,
-                    ${money(MIN_LOCAL_CENTS)} minimum. Groups count as countries and mix with them:
+                    you want to be seen in: ${style.strong('--audience PT,ES')} — those local boards
+                    only, and ${money(MIN_LOCAL_CENTS)} for each (PT,ES is ${money(MIN_LOCAL_CENTS * 2)}). Groups count as
+                    countries and mix with them:
                     ${GROUP_NAMES.slice(0, 7).join(', ')},
                     ${GROUP_NAMES.slice(7).join(', ')}
                     More than ${LOCAL_MAX_COUNTRIES} countries is the world: that is a global

@@ -53,12 +53,16 @@ export const DEFAULT_PLATFORM: PlatformId = 'x';
 export const MAX_SPONSOR_CENTS = 10_000_000;
 
 /**
- * The two minimums, from `docs/sponsoredtokens/audience-contract.md`.
+ * The minimums, from `docs/sponsoredtokens/audience-contract.md`.
  *
- * A global sponsorship is on every board there is, so it costs $100. A local one is on the boards of
- * the countries it named and nowhere else, so it costs $10 — the price of being seen in one place
- * rather than everywhere. The worker enforces the same two numbers; checking them here means the
- * refusal arrives before a Checkout session exists.
+ * A global sponsorship is on every board there is, so it costs $100 flat. A local one is priced BY
+ * THE COUNTRY: $10 for each board it joins — one country $10, three $30, the full sixty $600. That
+ * is the whole shape of the thing. A country is a board, a board is $10, and a sponsor buying
+ * thirty of them is buying thirty places rather than one cheap ticket to most of the pool.
+ *
+ * `MIN_LOCAL_CENTS` is therefore a RATE, not a floor. `minimumCentsFor` is the only thing that
+ * should multiply it. The worker enforces the same arithmetic; doing it here too means the refusal
+ * arrives before a Checkout session exists.
  */
 export const MIN_GLOBAL_CENTS = 10_000;
 export const MIN_LOCAL_CENTS = 1_000;
@@ -162,9 +166,9 @@ export interface AudienceChoice {
 
 export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null, collapsedFrom: null };
 
-/** $100 for global, $10 for local. The number, without the sentence explaining it. */
+/** $100 for global, $10 per country for local. The number, without the sentence explaining it. */
 export const minimumCentsFor = (audience: Audience): number =>
-  audience === 'global' ? MIN_GLOBAL_CENTS : MIN_LOCAL_CENTS;
+  audience === 'global' ? MIN_GLOBAL_CENTS : MIN_LOCAL_CENTS * audience.length;
 
 /**
  * `--audience global | <CC,CC,…>` → the value the request carries, or a refusal.
@@ -248,12 +252,19 @@ export interface AmountRequest {
   audience: Audience;
 }
 
+/** `1 country needs`, `3 countries need`. The refusal says the count back — the count IS the price. */
+const countriesNeed = (n: number): string => (n === 1 ? '1 country needs' : `${n} countries need`);
+
 /**
  * The amount, in cents, or a refusal — decided entirely before anything is POSTed.
  *
- * The minimum is the AUDIENCE's ($100 global, $10 local), raised to the board's own if that board
- * asks for more: the two agree today, and if the pool ever raises one of them the CLI follows the
- * live number rather than minting a session the worker will refuse.
+ * The minimum is the AUDIENCE's ($100 global, $10 a country local), raised to the board's own if
+ * that board asks for more: the two agree today, and if the pool ever raises one of them the CLI
+ * follows the live number rather than minting a session the worker will refuse.
+ *
+ * The DEFAULT is floored at that minimum. The board's suggestion is "the top balance plus $5", which
+ * on a quiet local board is a few dollars — below what thirty countries cost. Taking the suggestion
+ * literally would refuse the amount the command itself proposed, which is no way to be told a price.
  *
  * The ceiling is checked here as well as at the worker on purpose: $100,000 is a typo guard, and a
  * typo caught after a round trip is a typo the caller has already stopped watching for.
@@ -269,7 +280,8 @@ export function resolveAmountCents(request: AmountRequest): number | SponsorRefu
         'The pool could not be read, so there is no suggested amount. Name one: --amount 50.',
       );
     }
-    cents = wholeDollars(request.board.suggestedCents);
+    // Never propose an amount this same function is about to refuse.
+    cents = Math.max(wholeDollars(request.board.suggestedCents), minimum);
   } else {
     if (!Number.isFinite(request.dollars) || !Number.isInteger(request.dollars) || request.dollars <= 0) {
       return refuse('invalid_amount', '--amount takes whole dollars, e.g. --amount 50.');
@@ -280,8 +292,8 @@ export function resolveAmountCents(request: AmountRequest): number | SponsorRefu
   if (cents < minimum) {
     const why =
       request.audience === 'global'
-        ? `a global sponsorship is on every board there is, so it starts at ${money(minimum)}. A country or two costs a tenth of that: --audience PT,ES`
-        : `a local sponsorship is on the boards of the countries you named, and starts at ${money(minimum)}`;
+        ? `a global sponsorship is on every board there is, so it starts at ${money(minimum)}. One country costs a tenth of that: --audience PT`
+        : `${countriesNeed(request.audience.length)} at least ${money(minimum)} — a local sponsorship is ${money(MIN_LOCAL_CENTS)} for each board it joins`;
     return refuse('amount_below_minimum', `You asked for ${money(cents)} — ${why}.`);
   }
   if (cents > MAX_SPONSOR_CENTS) {
