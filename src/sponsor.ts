@@ -116,8 +116,27 @@ export function parseTarget(raw: string | undefined, platform: string | null): S
 /** What the checkout body and the `--json` output carry: `'global'`, or sorted ISO alpha-2 codes. */
 export type Audience = 'global' | string[];
 
-/** The most countries one sponsorship can name. The contract's cap, enforced by the worker too. */
-export const MAX_AUDIENCE_COUNTRIES = 80;
+/**
+ * The most countries a LOCAL sponsorship can name. More than this and it is a global one.
+ *
+ * There is no cap on `--audience`: naming a lot of countries is not an error, and nothing here
+ * refuses. But past 60 a list has stopped being "the countries near me" and become the world with
+ * gaps in it — and selling that at the LOCAL minimum would be the global board bought for a tenth of
+ * its price. So a longer set is COLLAPSED to `global` and charged as such, which is the sponsorship
+ * the caller was describing anyway. `COLLAPSED_TO_GLOBAL` is the one line that says it happened.
+ *
+ * This replaces an entry cap. A cap refuses the purchase with a number the sponsor cannot act on;
+ * this sells them the thing they asked for and tells them what it cost.
+ *
+ * 60 is the contract's number, not this package's: `worker/src/sponsored/audience.ts` collapses at
+ * the same count, and the site's docs quote it. Collapsing here as well is not belt-and-braces — it
+ * is what lets the command name the right minimum and fetch the right board BEFORE it posts
+ * anything, so the sponsor learns the price from the CLI rather than from a 400.
+ */
+export const LOCAL_MAX_COUNTRIES = 60;
+
+/** Printed, verbatim, whenever a country list is collapsed by `LOCAL_MAX_COUNTRIES`. */
+export const COLLAPSED_TO_GLOBAL = `More than ${LOCAL_MAX_COUNTRIES} countries is the world, so this is a global sponsorship.`;
 
 export interface AudienceChoice {
   /** The value sent to the worker and printed in the JSON: sorted and de-duplicated. */
@@ -130,9 +149,18 @@ export interface AudienceChoice {
    * sent to the worker is sorted all the same, because a set has no order.
    */
   board: string | null;
+  /**
+   * How many distinct countries the caller named, when that was enough to make this global anyway.
+   *
+   * Null on every other path, including a plain `--audience global` — the caller who typed `global`
+   * needs no explanation, and the one who typed `eea,africa` does. The command prints
+   * `COLLAPSED_TO_GLOBAL` on exactly this field, before the amount is checked, so the $100 minimum
+   * never arrives without the sentence that explains it.
+   */
+  collapsedFrom: number | null;
 }
 
-export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null };
+export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null, collapsedFrom: null };
 
 /** $100 for global, $10 for local. The number, without the sentence explaining it. */
 export const minimumCentsFor = (audience: Audience): number =>
@@ -148,6 +176,9 @@ export const minimumCentsFor = (audience: Audience): number =>
  *
  * `global` is not a country and cannot be one of several: `--audience global,PT` is either "the
  * world" or "Portugal" and there is no reading of it that is both, so it is a usage error.
+ *
+ * A list of more than `LOCAL_MAX_COUNTRIES` comes back as `global` with `collapsedFrom` set, not as
+ * a refusal. See that constant for why.
  */
 export function parseAudience(raw: string | null | undefined): AudienceChoice | SponsorRefusal {
   const text = (raw ?? '').trim();
@@ -185,13 +216,10 @@ export function parseAudience(raw: string | null | undefined): AudienceChoice | 
   }
 
   const unique = [...new Set(codes)].sort();
-  if (unique.length > MAX_AUDIENCE_COUNTRIES) {
-    return refuse(
-      'invalid_audience',
-      `That is ${unique.length} countries; one sponsorship can name ${MAX_AUDIENCE_COUNTRIES}. Sponsor globally instead: --audience global.`,
-    );
+  if (unique.length > LOCAL_MAX_COUNTRIES) {
+    return { audience: 'global', board: null, collapsedFrom: unique.length };
   }
-  return { audience: unique, board: codes[0]! };
+  return { audience: unique, board: codes[0]!, collapsedFrom: null };
 }
 
 // ── The amount ────────────────────────────────────────────────────────────────────────────────

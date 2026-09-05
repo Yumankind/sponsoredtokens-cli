@@ -42,6 +42,7 @@ import { banner, createSpinner, errInk, money, outInk, row, spinnerFrames, sugge
 import { boardLines, fetchBoard, EMPTY_BOARD, type Board } from './pool.ts';
 import { encodeQr, qrColumns, qrLines } from './qr.ts';
 import {
+  COLLAPSED_TO_GLOBAL,
   TERMS_VERSION,
   checkoutBody,
   isRefusal,
@@ -262,6 +263,10 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
   // the global one, or the local board of the first country named (`--audience PT,ES` → PT).
   const choice = parseAudience(parsed.audience);
   if (isRefusal(choice)) return fail(choice);
+
+  // A list big enough to be the world is sold as the world. Said HERE, above the board fetch, so it
+  // lands before the $100 minimum can refuse an amount the caller picked for a local sponsorship.
+  if (choice.collapsedFrom !== null) write(`  ${COLLAPSED_TO_GLOBAL}`);
 
   // The board decides the default amount, the minimum and the rank. Every refusal below happens
   // BEFORE anything is POSTed: a Checkout session that exists because of a typo is a row nobody

@@ -129,10 +129,14 @@ Country codes are ISO-3166-1 alpha-2, in any case, de-duplicated and sorted befo
 `--audience pt,es,PT` is `["ES","PT"]`. Twelve group names stand for a list of codes and can be
 mixed with plain ones — `eu`, `eea`, `dach`, `nordics`, `iberia`, `uk-ie`, `north-america`, `latam`,
 `apac`, `middle-east`, `africa`, `english` (`src/countries.ts` writes out exactly what each covers).
-One sponsorship names at most 80 countries; past that, sponsor globally.
+A local sponsorship names up to **60** countries. More than 60 is the world with gaps in it, so that
+set is sold as a **global** sponsorship at the $100 minimum, and the command says so in one line
+before it asks for anything — so `--audience eea,africa`, 84 countries, is global. Nothing is
+refused: you are sold the thing you were describing. The pool applies the same rule at the same
+count; the CLI applies it early so the minimum and the board are right before anything is posted.
 
 Anything else is refused before a Checkout session exists, by name rather than by being dropped: an
-unknown country, an empty entry, `global` mixed with countries, more than 80 of them. The default
+unknown country, an empty entry, `global` mixed with countries. The default
 amount, the "#N" and the minimum all come from the board you chose — for `--audience PT,ES` that is
 the local board of **PT**, the first country you named.
 

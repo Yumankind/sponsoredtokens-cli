@@ -10,7 +10,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  MAX_AUDIENCE_COUNTRIES,
+  COLLAPSED_TO_GLOBAL,
+  LOCAL_MAX_COUNTRIES,
   MIN_GLOBAL_CENTS,
   MIN_LOCAL_CENTS,
   checkoutBody,
@@ -36,11 +37,12 @@ const choice = (raw: string | null): AudienceChoice => {
 // ── Parsing ───────────────────────────────────────────────────────────────────────────────────
 
 test('no --audience at all is global, and so is the word itself', () => {
-  assert.deepEqual(parseAudience(null), { audience: 'global', board: null });
-  assert.deepEqual(parseAudience(undefined), { audience: 'global', board: null });
-  assert.deepEqual(parseAudience('  '), { audience: 'global', board: null });
-  assert.deepEqual(parseAudience('global'), { audience: 'global', board: null });
-  assert.deepEqual(parseAudience('GLOBAL'), { audience: 'global', board: null });
+  const world = { audience: 'global', board: null, collapsedFrom: null };
+  assert.deepEqual(parseAudience(null), world);
+  assert.deepEqual(parseAudience(undefined), world);
+  assert.deepEqual(parseAudience('  '), world);
+  assert.deepEqual(parseAudience('global'), world);
+  assert.deepEqual(parseAudience('GLOBAL'), world);
 });
 
 test('plain codes are upper-cased, de-duplicated and sorted', () => {
@@ -127,13 +129,94 @@ test('global cannot be one of several — it is either the world or a list', () 
   assert.ok(isRefusal(parseAudience('eu,global')));
 });
 
-test('past the contract’s 80 countries the sponsorship is global, and says so', () => {
-  const refusal = parseAudience('eea,africa'); // 30 + 54, and nothing in both
-  assert.ok(isRefusal(refusal) && refusal.code === 'invalid_audience');
-  assert.match(refusal.message, /84 countries/);
-  assert.match(refusal.message, /--audience global/);
-  assert.equal(MAX_AUDIENCE_COUNTRIES, 80);
-  assert.equal(choice('africa').audience.length <= MAX_AUDIENCE_COUNTRIES, true);
+// ── More than sixty countries ─────────────────────────────────────────────────────────────────
+
+/**
+ * `n` distinct tokens that `parseAudience` reads as exactly one country each.
+ *
+ * Two kinds are skipped, and both are the parser being right rather than the generator working
+ * around it: `XX` is reserved, and `EU` is a GROUP NAME — a token that is both is read as the group,
+ * so `EU` in this list would quietly add 27 countries and the count under test would be a lie.
+ */
+const codes = (n: number): string[] => {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const groups = new Set(GROUP_NAMES.map((name) => name.toUpperCase()));
+  const out: string[] = [];
+  for (const a of letters) {
+    for (const b of letters) {
+      const code = `${a}${b}`;
+      if (code === 'XX' || code === 'T1' || groups.has(code)) continue;
+      out.push(code);
+      if (out.length === n) return out;
+    }
+  }
+  throw new Error(`cannot build ${n} codes`);
+};
+
+test('the line is the boundary: 60 is local, 61 is the world', () => {
+  assert.equal(LOCAL_MAX_COUNTRIES, 60);
+
+  const local = choice(codes(LOCAL_MAX_COUNTRIES).join(','));
+  assert.equal(Array.isArray(local.audience) && local.audience.length, 60);
+  assert.equal(local.collapsedFrom, null);
+  assert.equal(minimumCentsFor(local.audience), MIN_LOCAL_CENTS);
+
+  const world = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
+  assert.equal(world.audience, 'global');
+  assert.equal(world.collapsedFrom, 61);
+  assert.equal(minimumCentsFor(world.audience), MIN_GLOBAL_CENTS);
+});
+
+test('60 countries keeps the board of the FIRST one named, like any local set', () => {
+  const picked = codes(LOCAL_MAX_COUNTRIES);
+  const parsed = choice(picked.join(','));
+  assert.equal(parsed.board, picked[0]);
+});
+
+test('a collapsed set has no board and says why, in Bruno’s words', () => {
+  const parsed = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
+  assert.equal(parsed.board, null);
+  assert.equal(COLLAPSED_TO_GLOBAL, 'More than 60 countries is the world, so this is a global sponsorship.');
+});
+
+test('the flip counts DISTINCT countries, so repeats do not reach it', () => {
+  const picked = codes(LOCAL_MAX_COUNTRIES);
+  const parsed = choice([...picked, ...picked].join(','));
+  assert.equal(Array.isArray(parsed.audience) && parsed.audience.length, 60);
+  assert.equal(parsed.collapsedFrom, null);
+});
+
+test('the request body carries `global` for a collapsed set, never the list', () => {
+  const parsed = choice(codes(LOCAL_MAX_COUNTRIES + 1).join(','));
+  const target = parseTarget('acme.com', null);
+  assert.ok(!isRefusal(target));
+  assert.equal(checkoutBody(target, MIN_GLOBAL_CENTS, parsed.audience).audience, 'global');
+
+  const result = { checkoutUrl: 'https://checkout.example/x', shortUrl: null, sponsorId: 'sp_1', slug: 'acme.com', amountCents: MIN_GLOBAL_CENTS };
+  assert.equal(sponsorJson(target, MIN_GLOBAL_CENTS, null, result, parsed.audience).audience, 'global');
+});
+
+test('`eea,africa` is 84 countries, which is the world — it used to be an error', () => {
+  const both = choice('eea,africa');
+  assert.equal(both.audience, 'global');
+  assert.equal(both.collapsedFrom, 84);
+  assert.equal(both.board, null);
+  assert.equal(minimumCentsFor(both.audience), MIN_GLOBAL_CENTS);
+});
+
+test('all twelve groups at once is 149 countries, and is sold as the world', () => {
+  const all = choice(GROUP_NAMES.join(','));
+  assert.equal(all.audience, 'global');
+  assert.equal(all.collapsedFrom, 149);
+});
+
+test('a group small enough to stay local does', () => {
+  const eu = choice('eu');
+  assert.equal(Array.isArray(eu.audience) && eu.audience.length, 27);
+  assert.equal(eu.collapsedFrom, null);
+  const africa = choice('africa');
+  assert.equal(Array.isArray(africa.audience) && africa.audience.length, 54);
+  assert.equal(africa.collapsedFrom, null);
 });
 
 // ── The minimum ───────────────────────────────────────────────────────────────────────────────

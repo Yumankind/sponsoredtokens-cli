@@ -23,7 +23,7 @@
 import { VERSION } from './version.ts';
 import { banner, money, plainInk, type Ink } from './ui.ts';
 import { GROUP_NAMES } from './countries.ts';
-import { MIN_GLOBAL_CENTS, MIN_LOCAL_CENTS } from './sponsor.ts';
+import { LOCAL_MAX_COUNTRIES, MIN_GLOBAL_CENTS, MIN_LOCAL_CENTS } from './sponsor.ts';
 
 export interface ParsedArgs {
   /** `login` | `logout` | `status` | a harness id | `run` | null when nothing was given. */
@@ -307,6 +307,8 @@ sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
                     ${money(MIN_LOCAL_CENTS)} minimum. Groups count as countries and mix with them:
                     ${GROUP_NAMES.slice(0, 7).join(', ')},
                     ${GROUP_NAMES.slice(7).join(', ')}
+                    More than ${LOCAL_MAX_COUNTRIES} countries is the world: that is a global
+                    sponsorship, at the global minimum, and it says so
   ${command('--platform <id>')}   for a bare @handle — x, instagram, github, linkedin, youtube,
                     tiktok, threads, bluesky. X when not given
   ${command('--json')}            one object on stdout, nothing else. For an agent
