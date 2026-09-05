@@ -11,6 +11,7 @@
  * `writeModelPlan` would WRITE — the developer's own `~/.sponsoredtokens/config.json`.
  */
 import { test, before, after } from 'node:test';
+import { VERSION } from '../src/version.ts';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -114,7 +115,7 @@ test('`status` prints the wordmark, the three pool lines and one aligned account
   assert.equal(code, 0);
   assert.deepEqual(stdout.split('\n').slice(0, -1), [
     '',
-    '  sponsored/tokens  0.1.0',
+    `  sponsored/tokens  ${VERSION}`,
     '',
     '  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors',
     '  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50',
@@ -207,7 +208,7 @@ test('`--model` skips the tier lookup entirely and adds the prefix for you', asy
 test('`--help` carries the wordmark and exits 0', async () => {
   const { code, stdout } = await run(['--help']);
   assert.equal(code, 0);
-  assert.ok(stdout.startsWith('  sponsored/tokens  0.1.0'));
+  assert.ok(stdout.startsWith(`  sponsored/tokens  ${VERSION}`));
   assert.ok(stdout.includes('--quiet, -q'));
   assert.ok(stdout.includes('--model anthropic/claude-haiku-4.5'));
 });
