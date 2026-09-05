@@ -1,0 +1,4 @@
+out/
+*.bun-build
+node_modules/
+dist/
