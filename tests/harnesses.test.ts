@@ -188,3 +188,14 @@ test('cursor refuses by name rather than pretending', () => {
 test('an unknown id is null, not a guess', () => {
   assert.equal(planFor('aider', ctx()), null);
 });
+
+test('a pinned launch hands every harness the regional base, and Codex an override for this run only', () => {
+  const eu = endpoints({} as NodeJS.ProcessEnv, 'eu');
+  const claude = planFor('claude', { key: 'sk-st-k.s', endpoints: eu, model: 'sponsored/x/y', paid: false, modelOverride: null })!;
+  assert.equal(claude.env.ANTHROPIC_BASE_URL, 'https://sponsoredtokens.com/api/eu');
+  assert.equal(claude.env.OPENAI_BASE_URL, 'https://sponsoredtokens.com/api/eu/v1');
+  const codex = planFor('codex', { key: 'sk-st-k.s', endpoints: eu, model: 'sponsored/x/y', paid: false, modelOverride: null })!;
+  assert.ok(codex.args.includes('model_providers.sponsoredtokens.base_url="https://sponsoredtokens.com/api/eu/v1"'));
+  const global = planFor('codex', { key: 'sk-st-k.s', endpoints: endpoints({} as NodeJS.ProcessEnv), model: 'sponsored/x/y', paid: false, modelOverride: null })!;
+  assert.ok(!global.args.some((a) => a.includes('base_url')));
+});

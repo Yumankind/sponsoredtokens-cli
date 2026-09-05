@@ -143,3 +143,10 @@ test('the help text names sponsor and what the link is for', () => {
   assert.match(help, /--no-open/);
   assert.match(help, /give it to the person who\n {2}pays/);
 });
+
+test('--region takes eu or us and nothing else', () => {
+  assert.equal(parseArgs(['--region', 'eu', 'claude']).region, 'eu');
+  assert.equal(parseArgs(['claude', '--region', 'US']).region, 'us');
+  assert.match(parseArgs(['--region', 'moon', 'claude']).error ?? '', /eu or us/);
+  assert.equal(parseArgs(['claude']).region, null);
+});

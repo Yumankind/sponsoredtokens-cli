@@ -31,7 +31,7 @@ import { createInterface } from 'node:readline/promises';
 
 import { parseArgs, helpText, type ParsedArgs } from './args.ts';
 import { VERSION } from './version.ts';
-import { endpoints, type Endpoints } from './endpoints.ts';
+import { endpoints, parseRegion, type Endpoints } from './endpoints.ts';
 import { clearConfig, readConfig, readModelPlan, resolveKey, writeConfig, writeModelPlan, configLocation } from './config-file.ts';
 import { createSponsorCheckout, fetchSponsorBoard, fetchStatus, pollDevice, startDevice } from './api.ts';
 import { mergeCodexConfig } from './codex-config.ts';
@@ -565,7 +565,7 @@ export async function main(argv: string[]): Promise<number> {
     return parsed.help ? 0 : 1; // no arguments at all is a usage error, not a successful run.
   }
 
-  const ep = endpoints();
+  const ep = endpoints(process.env, parsed.region ? parseRegion(parsed.region) : parseRegion(process.env.SPONSOREDTOKENS_REGION));
 
   if (parsed.command === 'logout') {
     const { file } = configLocation(process.platform, process.env, homedir());

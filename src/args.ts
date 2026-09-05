@@ -32,6 +32,8 @@ export interface ParsedArgs {
   paid: boolean;
   /** Override the model id. Prefixed for us by `harnesses.ts` unless `--paid`. */
   model: string | null;
+  /** `--region eu|us`: pin the launch to providers hosted in one region. Null is the global pool. */
+  region: string | null;
   /** Do not ask before installing a missing harness. */
   yes: boolean;
   /** Skip the pool block and the model note before a launch: output only the harness's own. */
@@ -55,6 +57,7 @@ const EMPTY: ParsedArgs = {
   rest: [],
   paid: false,
   model: null,
+  region: null,
   yes: false,
   quiet: false,
   help: false,
@@ -166,6 +169,15 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
       out.model = value;
       return 2;
     }
+    case '--region': {
+      const value = argv[i + 1];
+      if (value === undefined || !/^(eu|us)$/i.test(value)) {
+        out.error = '--region needs eu or us, e.g. --region eu';
+        return 1;
+      }
+      out.region = value.toLowerCase();
+      return 2;
+    }
     default:
       if (token.startsWith('--model=')) {
         const value = token.slice('--model='.length);
@@ -257,6 +269,8 @@ Options:
   ${command('--model <id>')}      override the model, with or without the sponsored/ prefix —
                     sponsored/ is added for you unless --paid. A 402 from the pool means
                     the model is above your tier: ${style.strong('--model anthropic/claude-haiku-4.5')}
+  ${command('--region <eu|us>')}  serve this launch only from providers hosted in that region
+                    (the base URL gains the region: …/api/eu/v1). Some models exist in one region only
   ${command('--yes, -y')}         install a missing harness without asking
   ${command('--quiet, -q')}       no pool block and no model note before the harness starts
   ${command('--')}                stop reading options; everything after is passed through

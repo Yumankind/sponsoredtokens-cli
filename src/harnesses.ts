@@ -142,11 +142,11 @@ export interface PlanContext {
 export function commonEnv(ctx: PlanContext): Record<string, string> {
   return {
     SPONSOREDTOKENS_API_KEY: ctx.key,
-    OPENAI_BASE_URL: ctx.endpoints.v1,
+    OPENAI_BASE_URL: ctx.endpoints.proxyV1,
     OPENAI_API_KEY: ctx.key,
-    OPENROUTER_BASE_URL: ctx.endpoints.v1,
+    OPENROUTER_BASE_URL: ctx.endpoints.proxyV1,
     OPENROUTER_API_KEY: ctx.key,
-    ANTHROPIC_BASE_URL: ctx.endpoints.api,
+    ANTHROPIC_BASE_URL: ctx.endpoints.proxyApi,
     ANTHROPIC_AUTH_TOKEN: ctx.key,
   };
 }
@@ -205,6 +205,9 @@ const BUILDERS: Record<string, Builder> = {
     plan.model = model;
     plan.configs.push({ segments: ['.codex', 'config.toml'], format: 'codex-toml', label: '~/.codex/config.toml' });
     plan.args = ['-c', `model_provider=${CODEX_PROVIDER_ID}`, '-c', `model=${model}`];
+    // The provider table on disk keeps the global base; a pinned launch overrides it for THIS run,
+    // so `--region` never leaves a region written into a file that outlives the flag.
+    if (ctx.endpoints.region) plan.args.push('-c', `model_providers.${CODEX_PROVIDER_ID}.base_url="${ctx.endpoints.proxyV1}"`);
     plan.install = { kind: 'npm', command: 'npm install -g @openai/codex' };
     return plan;
   },
@@ -218,7 +221,7 @@ const BUILDERS: Record<string, Builder> = {
   openclaw: (ctx) => {
     const plan = base('openclaw', 'openclaw', ctx);
     const provider = {
-      baseUrl: ctx.endpoints.v1,
+      baseUrl: ctx.endpoints.proxyV1,
       api: 'openai-completions',
       apiKey: { source: 'env', id: 'SPONSOREDTOKENS_API_KEY' },
       models: [{ id: ctx.model, name: 'sponsoredtokens', contextWindow: 200_000, maxTokens: 32_000 }],
@@ -248,7 +251,7 @@ const BUILDERS: Record<string, Builder> = {
           [PROVIDER_ID]: {
             npm: '@ai-sdk/openai-compatible',
             name: 'sponsoredtokens',
-            options: { baseURL: ctx.endpoints.v1, apiKey: '{env:SPONSOREDTOKENS_API_KEY}' },
+            options: { baseURL: ctx.endpoints.proxyV1, apiKey: '{env:SPONSOREDTOKENS_API_KEY}' },
             models: { [ctx.model]: { name: ctx.model } },
           },
         },
@@ -278,7 +281,7 @@ const BUILDERS: Record<string, Builder> = {
           [PROVIDER_ID]: {
             npm: '@ai-sdk/openai-compatible',
             name: 'sponsoredtokens',
-            options: { baseURL: ctx.endpoints.v1, apiKey: '{env:SPONSOREDTOKENS_API_KEY}' },
+            options: { baseURL: ctx.endpoints.proxyV1, apiKey: '{env:SPONSOREDTOKENS_API_KEY}' },
             models: { [ctx.model]: { name: ctx.model } },
           },
         },
@@ -302,7 +305,7 @@ const BUILDERS: Record<string, Builder> = {
       patch: {
         providers: {
           [PROVIDER_ID]: {
-            baseUrl: ctx.endpoints.v1,
+            baseUrl: ctx.endpoints.proxyV1,
             api: 'openai-completions',
             apiKey: '$SPONSOREDTOKENS_API_KEY',
             models: [{ id: ctx.model }],
@@ -326,7 +329,7 @@ const BUILDERS: Record<string, Builder> = {
    */
   hermes: (ctx) => {
     const plan = base('hermes', 'hermes', ctx);
-    plan.env.CUSTOM_BASE_URL = ctx.endpoints.v1;
+    plan.env.CUSTOM_BASE_URL = ctx.endpoints.proxyV1;
     plan.install = {
       kind: 'script',
       command: 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash',
@@ -344,7 +347,7 @@ const BUILDERS: Record<string, Builder> = {
   junie: (ctx) => {
     const plan = base('junie', 'junie', ctx);
     plan.env.JUNIE_LLM_PROVIDER = 'litellm';
-    plan.env.JUNIE_LITELLM_URL = ctx.endpoints.v1;
+    plan.env.JUNIE_LITELLM_URL = ctx.endpoints.proxyV1;
     plan.env.JUNIE_LITELLM_API_KEY = ctx.key;
     plan.env.JUNIE_MODEL = ctx.model;
     plan.install = { kind: 'npm', command: 'npm install -g @jetbrains/junie-cli' };
