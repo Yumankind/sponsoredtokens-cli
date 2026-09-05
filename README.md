@@ -60,7 +60,7 @@ after `--`, and never inside a `run` command — that argv is yours.
 ```sh
 sponsoredtokens sponsor acme.com                       # the amount that takes #1 today
 sponsoredtokens sponsor @acme --platform github --amount 250
-sponsoredtokens sponsor acme.com --audience PT,ES      # Portugal and Spain, from $10
+sponsoredtokens sponsor acme.com --audience PT,ES      # Portugal and Spain, $10 each
 sponsoredtokens sponsor acme.com --json --no-open      # for an agent
 ```
 
@@ -78,7 +78,7 @@ there; the version accepted is stored on the sponsor record.
 
 | | |
 |---|---|
-| `--amount <n>` | Whole dollars. Default: the top remaining balance on your board plus $5, which is what takes #1 there. Below that board's minimum ($100 global, $10 local) or above $100,000 is refused before any request is made |
+| `--amount <n>` | Whole dollars. Default: the top remaining balance on your board plus $5, which is what takes #1 there. Below that board's minimum ($10 global, $10 for each country) or above $100,000 is refused before any request is made |
 | `--audience <a>` | `global` (the default: every board, everywhere) or the countries you want to be seen in — `--audience PT,ES`. See **Global or local** |
 | `--platform <id>` | For a bare `@handle`: `x`, `instagram`, `github`, `linkedin`, `youtube`, `tiktok`, `threads`, `bluesky`. X when not given, and ignored for a URL |
 | `--json` | One object on stdout and nothing else; the wordmark and the closing note move to stderr. Errors are `{ "error", "code" }` on stdout with exit 1 |
@@ -107,7 +107,7 @@ stored it is sent anyway, so the sponsorship can be attributed to that account l
 `--audience` decides which board the sponsorship is on, and every other number follows from it.
 
 ```sh
-sponsoredtokens sponsor acme.com                      # global: every board, from $100
+sponsoredtokens sponsor acme.com                      # global: every board, from $10
 sponsoredtokens sponsor acme.com --audience PT,ES     # the local boards of PT and ES, from $10
 sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
 ```
@@ -119,11 +119,13 @@ sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
   Pay       https://checkout.stripe.com/c/pay/cs_live_…
 ```
 
-A **global** sponsor is on every board there is, and on the home page for everybody: $100 minimum. A
+A **global** sponsor is on every board there is, and on the home page for everybody: $10 minimum. A
 **local** sponsor is on the local boards of the countries they named and nowhere else, and is drawn
 for the pool's tasks that come from those countries: **$10 for each country**. One country is $10,
-three are $30, eighty-four are $840 — a country is a board, and each board costs the same. A local
-sponsor still appears on the global board too, ranked by balance like anyone else. The audience is set at payment, and the
+three are $30, eighty-four are $840 — a country is a board, and each board costs the same. So $10 is
+the entry price either way, and picking two countries costs more than picking the world: countries
+are bought one board at a time, and the world is one board. A local sponsor still appears on the
+global board too, ranked by balance like anyone else. The audience is set at payment, and the
 only way to change it is to recharge with a different one.
 
 Country codes are ISO-3166-1 alpha-2, in any case, de-duplicated and sorted before they are sent:
@@ -132,9 +134,10 @@ mixed with plain ones — `eu`, `eea`, `dach`, `nordics`, `iberia`, `uk-ie`, `no
 `apac`, `middle-east`, `africa`, `english` (`src/countries.ts` writes out exactly what each covers).
 There is **no ceiling**: name as many countries as you like and pay $10 for each, so
 `--audience eea,africa` is 84 countries and $840. The one exception is the set that leaves nobody
-out — name all **249** and it is a **global** sponsorship at the flat $100, because "everyone" ought
-to cost less than enumerating everyone. The command says so in one line before it asks for
-anything: *That is every country, so this is a global sponsorship.* Nothing is refused either way.
+out — name all **249** and it is a **global** sponsorship, because "everyone" is simply the global
+board written the long way. The command says so in one line before it asks for anything: *That is
+every country, so this is a global sponsorship.* Nothing is refused either way; the amount is then
+the global board's, starting at $10.
 
 Codes are validated against the standard itself — all 249 are embedded in `src/countries.ts`, copied
 from the site's own table so the two agree exactly — so `ZZ` is refused here, by name, rather than

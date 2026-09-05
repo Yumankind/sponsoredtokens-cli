@@ -265,7 +265,8 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
   if (isRefusal(choice)) return fail(choice);
 
   // A list big enough to be the world is sold as the world. Said HERE, above the board fetch, so it
-  // lands before the $100 minimum can refuse an amount the caller picked for a local sponsorship.
+  // lands before the global board's minimum, suggestion and rank do — the caller who enumerated 249
+  // countries is owed the sentence before the numbers stop being the ones they were expecting.
   if (choice.collapsedFrom !== null) write(`  ${COLLAPSED_TO_GLOBAL}`);
 
   // The board decides the default amount, the minimum and the rank. Every refusal below happens

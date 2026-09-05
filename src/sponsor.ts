@@ -55,19 +55,22 @@ export const MAX_SPONSOR_CENTS = 10_000_000;
 /**
  * The minimums, from `docs/sponsoredtokens/audience-contract.md`.
  *
- * A global sponsorship is on every board there is, so it costs $100 flat. A local one is priced BY
+ * A global sponsorship is on every board there is, and it starts at $10. A local one is priced BY
  * THE COUNTRY: $10 for each board it joins — one country $10, three $30, all 248-but-one $2,480.
  * That is the whole shape of the thing. A country is a board, a board is $10, and a sponsor buying
  * thirty of them is buying thirty places rather than one cheap ticket to most of the pool.
  *
- * Which is why buying ALL of them is global instead, at $100: the flat price exists precisely so
- * that "everyone" is cheaper than enumerating everyone.
+ * So $10 is the entry price everywhere, and TWO countries already cost more than the world. That is
+ * deliberate, not an accident of the arithmetic: naming countries is buying boards one at a time,
+ * and the global board is one board. Naming ALL of them is not an expensive local sponsorship, it is
+ * the global board described the long way — "everyone" IS global whatever either costs — which is
+ * why that one set collapses, and why it is the only one that does.
  *
  * `MIN_LOCAL_CENTS` is therefore a RATE, not a floor. `minimumCentsFor` is the only thing that
  * should multiply it. The worker enforces the same arithmetic; doing it here too means the refusal
  * arrives before a Checkout session exists.
  */
-export const MIN_GLOBAL_CENTS = 10_000;
+export const MIN_GLOBAL_CENTS = 1_000;
 export const MIN_LOCAL_CENTS = 1_000;
 
 /** A refusal this CLI makes on its own, before any request. The code is what `--json` prints. */
@@ -129,8 +132,10 @@ export type Audience = 'global' | string[];
  * There is NO ceiling on `--audience`. A local sponsorship can name any number of countries and pays
  * $10 for each, so 84 countries is $840 and there is nothing to refuse or round off — the price is
  * the count. The single exception is the set that leaves nobody out: naming all 249 is not a very
- * long local sponsorship, it is a global one described the long way, and it is sold as global at the
- * flat $100. That is the only collapse, and `coversEveryCountry` is the only thing that decides it.
+ * long local sponsorship, it is a global one described the long way, so it is sold as global. The
+ * collapse is about WHO is covered rather than what it costs — "everyone" is the global board, and
+ * it would still be the global board at any price. That is the only collapse there is, and
+ * `coversEveryCountry` is the only thing that decides it.
  */
 export const COLLAPSED_TO_GLOBAL = 'That is every country, so this is a global sponsorship.';
 
@@ -150,15 +155,16 @@ export interface AudienceChoice {
    *
    * Null on every other path, including a plain `--audience global` — the caller who typed `global`
    * needs no explanation, and the one who typed `eea,africa` does. The command prints
-   * `COLLAPSED_TO_GLOBAL` on exactly this field, before the amount is checked, so the $100 minimum
-   * never arrives without the sentence that explains it.
+   * `COLLAPSED_TO_GLOBAL` on exactly this field, before the board is read, so the global minimum,
+   * the global suggestion and a rank with no country on it never arrive without the sentence that
+   * says which board the caller ended up on.
    */
   collapsedFrom: number | null;
 }
 
 export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null, collapsedFrom: null };
 
-/** $100 for global, $10 per country for local. The number, without the sentence explaining it. */
+/** $10 for global, $10 per country for local. The number, without the sentence explaining it. */
 export const minimumCentsFor = (audience: Audience): number =>
   audience === 'global' ? MIN_GLOBAL_CENTS : MIN_LOCAL_CENTS * audience.length;
 
@@ -250,7 +256,7 @@ const countriesNeed = (n: number): string => (n === 1 ? '1 country needs' : `${n
 /**
  * The amount, in cents, or a refusal — decided entirely before anything is POSTed.
  *
- * The minimum is the AUDIENCE's ($100 global, $10 a country local), raised to the board's own if
+ * The minimum is the AUDIENCE's ($10 global, $10 a country local), raised to the board's own if
  * that board asks for more: the two agree today, and if the pool ever raises one of them the CLI
  * follows the live number rather than minting a session the worker will refuse.
  *
@@ -284,7 +290,7 @@ export function resolveAmountCents(request: AmountRequest): number | SponsorRefu
   if (cents < minimum) {
     const why =
       request.audience === 'global'
-        ? `a global sponsorship is on every board there is, so it starts at ${money(minimum)}. One country costs a tenth of that: --audience PT`
+        ? `a global sponsorship is on every board there is, and the least it can be bought for is ${money(minimum)}`
         : `${countriesNeed(request.audience.length)} at least ${money(minimum)} — a local sponsorship is ${money(MIN_LOCAL_CENTS)} for each board it joins`;
     return refuse('amount_below_minimum', `You asked for ${money(cents)} — ${why}.`);
   }
