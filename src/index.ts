@@ -39,7 +39,8 @@ import { mergeJsonConfig } from './json-config.ts';
 import { providerPath, removeCodexProvider, removeJsonPath } from './reset.ts';
 import { resolveExecutable, runChild } from './exec.ts';
 import { banner, createSpinner, errInk, money, outInk, row, spinnerFrames, suggestHarness, type Ink } from './ui.ts';
-import { boardLines, fetchBoard, EMPTY_BOARD, type Board } from './pool.ts';
+import { boardLines, fetchBoard, footnoteLine, EMPTY_BOARD, type Board } from './pool.ts';
+import { listTokens } from './tokens.ts';
 import { encodeQr, qrColumns, qrLines } from './qr.ts';
 import {
   COLLAPSED_TO_GLOBAL,
@@ -199,13 +200,39 @@ async function status(ep: Endpoints, quiet: boolean): Promise<number> {
 
   out('');
   out(banner(VERSION, style));
-  printBoard(boardLines(poolBoard, style), out);
+  // The board's own footnote is suppressed: the budget line below carries a token figure too, and
+  // one note under the whole block is the honest place for it. See the bottom of this function.
+  const poolLines = boardLines(poolBoard, style, { footnote: false });
+  printBoard(poolLines, out);
   out('');
 
+  /**
+   * THE MONEY STAYS MONEY, AND THE TOKENS RIDE ALONG.
+   *
+   * The weekly budget IS dollars — it is what the pool will spend on this account's behalf, and
+   * `$5 a week` is the number the site promises a referral is worth. So it is printed as dollars
+   * and the size it buys is printed after it, at the same reference price as the pool block above
+   * (`tokens.ts`). Converting the allowance itself would replace a fact with an estimate.
+   */
+  let budgetShown = false;
   if (typeof budget.remainingCents === 'number' && typeof budget.weeklyCents === 'number') {
-    out(row('Budget', `${style.accent(money(budget.remainingCents))} left of ${style.strong(money(budget.weeklyCents))} this week`, style));
+    out(
+      row(
+        'Budget',
+        `${style.accent(money(budget.remainingCents))} left of ${style.strong(money(budget.weeklyCents))} this week${style.muted(' · ')}${style.accent(listTokens(budget.remainingCents))} tokens`,
+        style,
+      ),
+    );
+    budgetShown = true;
   } else if (typeof budget.remainingCents === 'number') {
-    out(row('Budget', `${style.accent(money(budget.remainingCents))} left this week`, style));
+    out(
+      row(
+        'Budget',
+        `${style.accent(money(budget.remainingCents))} left this week${style.muted(' · ')}${style.accent(listTokens(budget.remainingCents))} tokens`,
+        style,
+      ),
+    );
+    budgetShown = true;
   }
   if (budget.resetsAt) out(row('Resets', budget.resetsAt, style));
 
@@ -219,6 +246,9 @@ async function status(ep: Endpoints, quiet: boolean): Promise<number> {
 
   if (user.referralLink) out(row('Referral', style.link(user.referralLink), style));
   out(row('Key', style.code(key.source === 'env' ? 'from SPONSOREDTOKENS_API_KEY' : (readConfig()?.keyId ?? 'stored')), style));
+  // ONE footnote for the whole command, and only when something above it is a token figure —
+  // `--quiet` drops the board, and an account read that answered no budget prints neither.
+  if (poolLines.length > 0 || budgetShown) out(footnoteLine(style));
   out('');
   return 0;
 }

@@ -23,13 +23,38 @@ Every command that talks to the pool prints where it stands, three lines, before
 way:
 
 ```
-  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors
-  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50
-  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90
+  Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors
+  Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M
+  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M
+            Token figures are at Claude Sonnet 5 prices.
 ```
 
 `--quiet` turns that off. It is never fetched with your key, never blocks for more than 3 seconds,
 and prints nothing at all when the board cannot be reached.
+
+The figures are **tokens**, converted at one named reference price — Claude Sonnet 5 at pool prices,
+$24 per million blended — which is the same conversion sponsoredtokens.com uses on its home page, so
+the two never quote a different size for the same pool. It is a size, not a quote: the pool spends on
+whatever model each task picks. Money that IS money stays money — your weekly budget below, and the
+`sponsor` amount, which is a price.
+
+`status` shows what you have:
+
+```
+  sponsored/tokens  0.3.7
+
+  Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors
+  Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M
+  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M
+
+  Budget    $18.75 left of $25 this week · 781K tokens
+  Resets    2026-09-08T00:00:00Z
+  Tier      0 — 2 referrals unlock anthropic/claude-sonnet-5
+  Model     sponsored/anthropic/claude-haiku-4.5
+  Referral  https://sponsoredtokens.com/r/K3ST
+  Key       from SPONSOREDTOKENS_API_KEY
+            Token figures are at Claude Sonnet 5 prices.
+```
 
 ## Commands
 
@@ -218,10 +243,12 @@ npm run typecheck
 npm run build    # plain tsc → dist/, which is what `npx sponsoredtokens` runs
 ```
 
-Two constants are mirrored from elsewhere in the monorepo and guarded by tests that read the
-original file: `TERMS_VERSION` from `sponsoredtokens-site/src/content/index.ts`, and `PLATFORM_IDS`
-from `worker/src/sponsored/platforms.ts`. The audience — the two minimums and the twelve groups —
-is the CLI's copy of `docs/sponsoredtokens/audience-contract.md`, which is the file to change first.
+Three things are mirrored from elsewhere in the monorepo and guarded by tests that read the original
+file: `TERMS_VERSION` from `sponsoredtokens-site/src/content/index.ts`, `PLATFORM_IDS` from
+`worker/src/sponsored/platforms.ts`, and the token conversion in `src/tokens.ts` — the reference
+price and both formatters — from `sponsoredtokens-site/src/lib/tank.ts` and `lib/pool-line.ts`. The
+audience — the two minimums and the twelve groups — is the CLI's copy of
+`docs/sponsoredtokens/audience-contract.md`, which is the file to change first.
 
 Release: bump `package.json` **and** `src/version.ts` (a test fails if they disagree), tag
 `cli-v<version>`, push. `.github/workflows/sponsoredtokens-cli.yml` compiles the five binaries with

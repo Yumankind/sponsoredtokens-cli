@@ -1,12 +1,25 @@
 /**
  * The three lines about the pool, and the two public reads behind them.
  *
- *   Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors
- *   Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50
- *   Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90
+ *   Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors
+ *   Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M
+ *   Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M
+ *             Token figures are at Claude Sonnet 5 prices.
  *
  * `GET /api/leaderboard?sort=remaining` and `GET /api/sponsors/recent?limit=3`, both unauthenticated
  * and both edge-cached for 30 s, so this costs the worker nothing per launch.
+ *
+ * ── THE UNIT IS TOKENS, AS IT IS ON THE SITE (0.3.7) ────────────────────────────────────────────
+ *
+ * These three lines used to be dollars while sponsoredtokens.com said tokens on every surface it
+ * has, so the two halves of one product quoted two different units for one pool and a reader had to
+ * do the division to see they agreed. `tokens.ts` carries the conversion, the reference price and
+ * the footnote, and the argument for all three.
+ *
+ * THE FOOTNOTE IS PART OF THE BLOCK and is the last line of it, because a token figure with no
+ * price attached to it means nothing. `status` is the one caller that turns it off here: its budget
+ * line carries a token figure of its own, and one footnote under the whole thing is the honest
+ * place for it rather than one in the middle.
  *
  * ── THIS FILE MUST NEVER BE THE REASON A COMMAND FAILS ──────────────────────────────────────────
  *
@@ -31,7 +44,8 @@
  */
 import { USER_AGENT } from './api.ts';
 import type { Endpoints } from './endpoints.ts';
-import { money, row, type Ink } from './ui.ts';
+import { LABEL_WIDTH, row, type Ink } from './ui.ts';
+import { TOKENS_FOOTNOTE, listTokens, poolTokens } from './tokens.ts';
 
 /** How many names fit on one terminal line without wrapping on an 80-column window. */
 const SHOWN = 3;
@@ -141,7 +155,20 @@ export async function fetchBoard(ep: Endpoints, options: FetchOptions = {}): Pro
 // ── Rendering ─────────────────────────────────────────────────────────────────────────────────
 
 function list(entries: PoolSponsor[], amount: (sponsor: PoolSponsor) => number, style: Ink): string {
-  return entries.map((sponsor) => `${sponsor.displayName} ${style.accent(money(amount(sponsor)))}`).join(style.muted(' · '));
+  return entries.map((sponsor) => `${sponsor.displayName} ${style.accent(listTokens(amount(sponsor)))}`).join(style.muted(' · '));
+}
+
+/**
+ * The reference-price line, hung under the label column so it reads as a note on the block above
+ * rather than as a fourth fact about the pool.
+ */
+export function footnoteLine(style: Ink): string {
+  return `  ${' '.repeat(LABEL_WIDTH)}${style.muted(TOKENS_FOOTNOTE)}`;
+}
+
+export interface BoardLineOptions {
+  /** Append the reference-price note. Default true; `status` prints its own, lower down. */
+  footnote?: boolean;
 }
 
 /**
@@ -149,20 +176,22 @@ function list(entries: PoolSponsor[], amount: (sponsor: PoolSponsor) => number, 
  *
  * The three lines are independent on purpose: `Top` and `Recent` are omitted when their fetch
  * failed rather than rendered empty, so a line that IS printed is always a line that is accurate.
+ * The footnote follows the same rule — a block with nothing in it gets no note about the price of
+ * the numbers it did not print.
  */
-export function boardLines(board: Board, style: Ink): string[] {
+export function boardLines(board: Board, style: Ink, options: BoardLineOptions = {}): string[] {
   const lines: string[] = [];
   const pool = board.pool;
 
   if (pool) {
     if (pool.lifetimeCents <= 0 && pool.balanceCents <= 0) {
-      lines.push(row('Pool', `${style.accent('$0')} left — nobody has sponsored yet`, style));
+      lines.push(row('Pool', `${style.accent('0')} tokens left — nobody has sponsored yet`, style));
     } else {
       const sponsorCount = pool.activeCount === 1 ? '1 sponsor' : `${pool.activeCount} sponsors`;
       lines.push(
         row(
           'Pool',
-          `${style.accent(money(pool.balanceCents))} left of ${style.strong(money(pool.lifetimeCents))} sponsored${style.muted(' · ')}${sponsorCount}`,
+          `${style.accent(poolTokens(pool.balanceCents))} tokens left of ${style.strong(poolTokens(pool.lifetimeCents))} sponsored${style.muted(' · ')}${sponsorCount}`,
           style,
         ),
       );
@@ -170,5 +199,6 @@ export function boardLines(board: Board, style: Ink): string[] {
   }
   if (board.top.length > 0) lines.push(row('Top', list(board.top, (s) => s.balanceCents, style), style));
   if (board.recent.length > 0) lines.push(row('Recent', list(board.recent, (s) => s.lifetimeCents, style), style));
+  if (lines.length > 0 && options.footnote !== false) lines.push(footnoteLine(style));
   return lines;
 }

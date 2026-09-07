@@ -1,6 +1,11 @@
 /**
  * The three pool lines, from the two public bodies the worker actually returns.
  *
+ * THE UNIT IS TOKENS (0.3.7), at the reference price in `src/tokens.ts` — the site's, and pinned to
+ * the site's by `tests/tokens.test.ts`. The block ends with the footnote that names the price,
+ * because a token figure with nothing attached to it means nothing; `status` is the one caller that
+ * turns that off and prints its own further down (`tests/cli.test.ts`).
+ *
  * The fixtures below are the shapes in `worker/src/routes/sponsored-checkout.ts` (`/api/leaderboard`
  * and `/api/sponsors/recent`), trimmed to the fields this CLI reads. The assertions are on the
  * PLAIN text, because that is the contract with the user; colour has its own test in `ui.test.ts`.
@@ -11,7 +16,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boardLines, cleanName, fetchBoard, parseBoard } from '../src/pool.ts';
+import { boardLines, cleanName, fetchBoard, footnoteLine, parseBoard, type BoardLineOptions } from '../src/pool.ts';
 import { endpoints } from '../src/endpoints.ts';
 import { inkFor } from '../src/ui.ts';
 
@@ -39,15 +44,20 @@ const RECENT = {
   ],
 };
 
-const lines = (leaderboard: unknown, recent: unknown): string[] => boardLines(parseBoard(leaderboard, recent), PLAIN);
+const lines = (leaderboard: unknown, recent: unknown, options: BoardLineOptions = {}): string[] =>
+  boardLines(parseBoard(leaderboard, recent), PLAIN, options);
+
+/** The reference-price note, hung under the label column. The last line of any block that has one. */
+const NOTE = `  ${' '.repeat(10)}Token figures are at Claude Sonnet 5 prices.`;
 
 // ── The happy path ────────────────────────────────────────────────────────────────────────────
 
 test('three lines: the pool, the top by remaining, the recent by what they paid', () => {
   assert.deepEqual(lines(LEADERBOARD, RECENT), [
-    '  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors',
-    '  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50',
-    '  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90',
+    '  Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors',
+    '  Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M',
+    '  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M',
+    NOTE,
   ]);
 });
 
@@ -59,20 +69,21 @@ test('only three names, however many the worker sends', () => {
 
 test('one sponsor is not "1 sponsors"', () => {
   const [pool] = lines({ pool: { balanceCents: 1_000, activeCount: 1, lifetimeCents: 1_000 }, sponsors: [] }, null);
-  assert.equal(pool, '  Pool      $10 left of $10 sponsored · 1 sponsor');
+  assert.equal(pool, '  Pool      416.7K tokens left of 416.7K sponsored · 1 sponsor');
 });
 
 // ── Nothing there, versus nothing heard ───────────────────────────────────────────────────────
 
 test('an empty pool says so in one line and prints no top or recent', () => {
   assert.deepEqual(lines({ pool: { balanceCents: 0, activeCount: 0, lifetimeCents: 0 }, sponsors: [] }, { sponsors: [] }), [
-    '  Pool      $0 left — nobody has sponsored yet',
+    '  Pool      0 tokens left — nobody has sponsored yet',
+    NOTE,
   ]);
 });
 
 test('a spent pool is not an empty one — the lifetime total is still worth printing', () => {
   const [pool] = lines({ pool: { balanceCents: 0, activeCount: 4, lifetimeCents: 50_000 }, sponsors: [] }, null);
-  assert.equal(pool, '  Pool      $0 left of $500 sponsored · 4 sponsors');
+  assert.equal(pool, '  Pool      0 tokens left of 20.8M sponsored · 4 sponsors');
 });
 
 test('a failed fetch prints NOTHING — no apology line above a login', () => {
@@ -80,8 +91,11 @@ test('a failed fetch prints NOTHING — no apology line above a login', () => {
 });
 
 test('half a board still prints its half', () => {
-  assert.deepEqual(lines(LEADERBOARD, null).length, 2);
-  assert.deepEqual(lines(null, RECENT), ['  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90']);
+  assert.deepEqual(lines(LEADERBOARD, null).length, 3); // Pool, Top, and the note
+  assert.deepEqual(lines(null, RECENT), [
+    '  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M',
+    NOTE,
+  ]);
 });
 
 test('a body of the wrong shape is read as no board at all, never as a crash', () => {
@@ -95,10 +109,28 @@ test('a sponsor cannot retitle the terminal or overwrite the line above', () => 
   // The ESC and the BEL go; what is left is inert text, which is the point — the sequence can no
   // longer be a sequence, and nothing about the name is silently rewritten beyond that.
   assert.equal(cleanName('\u001b]0;pwned\u0007Acme'), ']0;pwned Acme');
-  assert.equal(cleanName('Acme\r\nPool      $0 left'), 'Acme Pool $0 left');
+  assert.equal(cleanName('Acme\r\nPool      0 tokens left'), 'Acme Pool 0 tokens left');
   assert.equal(cleanName(123), '');
   const [, top] = lines({ pool: LEADERBOARD.pool, sponsors: [{ displayName: 'A\u001b[31mB', balanceCents: 100, lifetimeCents: 100 }] }, null);
   assert.ok(!top!.includes('\u001b'));
+});
+
+// ── The footnote ──────────────────────────────────────────────────────────────────────────────
+
+test('the note is the last line of the block, and never a line of its own', () => {
+  const block = lines(LEADERBOARD, RECENT);
+  assert.equal(block.at(-1), NOTE);
+  assert.equal(block.filter((line) => line === NOTE).length, 1, 'one note, however many figures it annotates');
+  // A block with nothing in it gets no note about the price of the numbers it did not print.
+  assert.deepEqual(lines(null, null), []);
+});
+
+test('`status` turns it off here and prints its own, under the budget line as well', () => {
+  const block = lines(LEADERBOARD, RECENT, { footnote: false });
+  assert.equal(block.length, 3);
+  assert.ok(!block.some((line) => line.includes('Sonnet')));
+  // …and the line it prints instead is this one, so the two can never disagree.
+  assert.equal(footnoteLine(PLAIN), NOTE);
 });
 
 test('a very long name is truncated rather than allowed to wrap the block', () => {

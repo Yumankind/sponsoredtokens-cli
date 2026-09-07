@@ -23,6 +23,15 @@ import { fileURLToPath } from 'node:url';
 
 const CLI = join(dirname(dirname(fileURLToPath(import.meta.url))), 'src', 'cli.ts');
 
+/**
+ * The reference-price note that follows every block carrying a token figure (0.3.7).
+ *
+ * Written out here rather than imported, because what these tests assert is the BYTES a user sees —
+ * an import would let a change to the constant quietly rewrite the expectation along with the
+ * output. `tests/tokens.test.ts` is where the constant itself is pinned to the site's.
+ */
+const NOTE = '            Token figures are at Claude Sonnet 5 prices.';
+
 const LEADERBOARD = {
   pool: { balanceCents: 162_450, activeCount: 13, lifetimeCents: 326_200 },
   sponsors: [
@@ -169,16 +178,21 @@ test('`status` prints the wordmark, the three pool lines and one aligned account
     '',
     `  sponsored/tokens  ${VERSION}`,
     '',
-    '  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors',
-    '  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50',
-    '  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90',
+    '  Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors',
+    '  Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M',
+    '  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M',
     '',
-    '  Budget    $18.75 left of $25 this week',
+    // THE MONEY STAYS MONEY: the weekly budget is what the pool will spend on this account, and
+    // "$5 a week" is the promise the site makes for a referral. The size it buys rides along.
+    '  Budget    $18.75 left of $25 this week · 781K tokens',
     '  Resets    2026-09-08T00:00:00Z',
     '  Tier      0 — 2 referrals unlock anthropic/claude-sonnet-5',
     '  Model     sponsored/anthropic/claude-haiku-4.5',
     '  Referral  https://sponsoredtokens.com/r/K3ST',
     '  Key       from SPONSOREDTOKENS_API_KEY',
+    // ONE note for the whole command, at the bottom — the pool block's own is turned off, because
+    // the budget line above carries a token figure too.
+    NOTE,
     '',
   ]);
 });
@@ -186,8 +200,10 @@ test('`status` prints the wordmark, the three pool lines and one aligned account
 test('`--quiet` drops the pool block and keeps everything that is about the caller', async () => {
   const { stdout } = await run(['status', '--quiet']);
   for (const label of ['Pool', 'Top', 'Recent']) assert.ok(!stdout.includes(`  ${label}  `), `${label} should be gone`);
-  assert.ok(stdout.includes('  Budget    $18.75 left of $25 this week'));
+  assert.ok(stdout.includes('  Budget    $18.75 left of $25 this week · 781K tokens'));
   assert.ok(stdout.includes('  sponsored/tokens'));
+  // The budget's token figure is still a token figure, so the note it needs is still printed.
+  assert.ok(stdout.includes(NOTE));
 });
 
 test('a piped stdout gets no escape codes, and FORCE_COLOR puts the orange back', async () => {
@@ -217,9 +233,10 @@ test('a launch prints the block and the banner to stderr, and nothing to the chi
   assert.ok(stdout.startsWith('v'), 'stdout belongs to the child alone');
   assert.deepEqual(stderr.split('\n').slice(0, -1), [
     '',
-    '  Pool      $1,624.50 left of $3,262 sponsored · 13 sponsors',
-    '  Top       Northwind Labs $482 · Ferrite $315 · Papertrail Books $227.50',
-    '  Recent    Kestrel Analytics $280 · Northwind Labs $1,200 · Muswell Coffee $90',
+    '  Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors',
+    '  Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M',
+    '  Recent    Kestrel Analytics 11.7M · Northwind Labs 50.0M · Muswell Coffee 3.75M',
+    NOTE,
     '  Model     sponsored/anthropic/claude-haiku-4.5 — the best at tier 0; 2 referrals unlock anthropic/claude-sonnet-5',
     '',
     `  sponsored/tokens · ${process.execPath} · the pool pays`,
