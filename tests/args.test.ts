@@ -163,9 +163,9 @@ test('the help text documents --audience: the default, both prices and the group
   const help = helpText(['claude', 'codex']);
   assert.match(help, /--audience <a>/);
   assert.match(help, /--audience PT,ES/);
-  assert.match(help, /\$10 minimum/, 'the flat global price');
-  assert.match(help, /\$10 for each/, 'and that a local one is priced per country');
-  assert.match(help, /PT,ES is \$20/, 'with the arithmetic shown once');
+  assert.match(help, /\$2 minimum/, 'the flat global price');
+  assert.match(help, /\$2 for each/, 'and that a local one is priced per country');
+  assert.match(help, /PT,ES is \$4/, 'with the arithmetic shown once');
   assert.match(help, /Any number of countries/, 'that there is no ceiling');
   assert.match(help, /naming every one of them is a\n\s+global sponsorship/, 'and the one set that is not local');
   for (const group of ['eu', 'eea', 'dach', 'nordics', 'iberia', 'uk-ie', 'north-america', 'latam', 'apac', 'middle-east', 'africa', 'english']) {

@@ -6,6 +6,8 @@
  * The built-in default was `sponsored/anthropic/claude-sonnet-5`, which the pool only unlocks at
  * tier 1 (two referrals). A brand-new account's very first `sponsoredtokens claude` therefore met a
  * 402 — the single worst possible first run, and one nobody could debug from the harness's error.
+ * (The constant in `harnesses.ts` is tier 0 now as well, so even the offline path is safe; this file
+ * is still what gets a person the BEST model their rung allows rather than the safest one.)
  * So the default is now READ from the pool: `GET <site>/api/v1/models` with the key returns the
  * caller's `tier`, their `referralCount`, the four `tiers` bands, and a `data[]` in which every
  * `sponsored/…` row carries the `tier` that unlocks it and `pool_price_usd.blended_per_million`,
@@ -36,7 +38,12 @@
 import { USER_AGENT } from './api.ts';
 import type { Endpoints } from './endpoints.ts';
 
-/** Tier 0, always available, and the only id this file will invent when it knows nothing. */
+/**
+ * Tier 0, always available, and the only id this file will invent when it knows nothing.
+ *
+ * The same id as `harnesses.ts`'s `DEFAULT_MODEL` and as the site's `EXAMPLE_MODEL_ID`: one string
+ * that a brand-new account can call, in the three places that have to guess (Bruno, 2026-09-07).
+ */
 export const SAFE_MODEL = 'anthropic/claude-haiku-4.5';
 
 /** How long a fetched plan stays fresh in the config file. */
@@ -145,6 +152,16 @@ interface Band {
   minReferrals: number;
 }
 
+/**
+ * The rungs REFERRALS BUY, from the `tiers` array of a `/v1/models` body.
+ *
+ * A PAID-ONLY rung is dropped (Bruno, 2026-09-07). The pool never buys tier 3 at any referral count,
+ * so it is not a "next" rung and `unlockNote` must never offer it: "50 more referrals unlock
+ * openai/o3-pro" is a promise nothing can keep. The wire says so two ways and both are honoured:
+ * `paidOnly: true`, and a `minReferrals` of `null` rather than a number. The second matters because
+ * `JSON.stringify(Infinity)` produces and a client that read it as `?? 0` would print "0 referrals"
+ * at the one rung that is never free.
+ */
 function bands(raw: unknown): Band[] {
   if (!Array.isArray(raw)) return [];
   const out: Band[] = [];
@@ -152,7 +169,9 @@ function bands(raw: unknown): Band[] {
     if (typeof entry !== 'object' || entry === null) continue;
     const record = entry as Record<string, unknown>;
     if (typeof record.tier !== 'number') continue;
-    out.push({ tier: record.tier, minReferrals: asNumber(record.minReferrals, 0) });
+    if (record.paidOnly === true) continue;
+    if (typeof record.minReferrals !== 'number' || !Number.isFinite(record.minReferrals)) continue;
+    out.push({ tier: record.tier, minReferrals: record.minReferrals });
   }
   return out.sort((a, b) => a.tier - b.tier);
 }

@@ -186,7 +186,7 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
     case '--model': {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('-')) {
-        out.error = '--model needs a model id, e.g. --model sponsored/anthropic/claude-sonnet-5';
+        out.error = '--model needs a model id, e.g. --model sponsored/anthropic/claude-haiku-4.5';
         return 1;
       }
       out.model = value;
@@ -205,7 +205,7 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
       if (token.startsWith('--model=')) {
         const value = token.slice('--model='.length);
         if (!value) {
-          out.error = '--model needs a model id, e.g. --model sponsored/anthropic/claude-sonnet-5';
+          out.error = '--model needs a model id, e.g. --model sponsored/anthropic/claude-haiku-4.5';
           return 1;
         }
         out.model = value;

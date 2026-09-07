@@ -82,7 +82,9 @@ test('`run` gets the common environment and nothing harness-specific', () => {
 
 test('claude gets both the current and the deprecated small-model variable', () => {
   const p = plan('claude');
-  assert.equal(p.env.ANTHROPIC_MODEL, 'sponsored/anthropic/claude-sonnet-5');
+  // The fallback default is TIER 0 now (Bruno, 2026-09-07): this is the model an offline launch gets,
+  // and a tier-1 id there was a 402 on a brand-new account's very first run.
+  assert.equal(p.env.ANTHROPIC_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
   assert.equal(p.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
   // The prefixed id is unknown to Claude Code's catalogue; without this it lectures on every launch.
   assert.equal(p.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT, '1');
@@ -93,7 +95,7 @@ test('claude gets both the current and the deprecated small-model variable', () 
 
 test('--paid drops the prefix from BOTH of claude’s models, not just the big one', () => {
   const p = plan('claude', { paid: true });
-  assert.equal(p.env.ANTHROPIC_MODEL, 'anthropic/claude-sonnet-5');
+  assert.equal(p.env.ANTHROPIC_MODEL, 'anthropic/claude-haiku-4.5');
   assert.equal(p.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'anthropic/claude-haiku-4.5');
 });
 
@@ -101,19 +103,19 @@ test('--paid drops the prefix from BOTH of claude’s models, not just the big o
 
 test('codex selects the provider and the model on the command line, and writes the provider block', () => {
   const p = plan('codex');
-  assert.deepEqual(p.args, ['-c', 'model_provider=sponsoredtokens', '-c', 'model=sponsored/openai/gpt-5.1-codex']);
+  assert.deepEqual(p.args, ['-c', 'model_provider=sponsoredtokens', '-c', 'model=sponsored/openai/gpt-5.1-codex-mini']);
   assert.deepEqual(p.configs[0]?.segments, ['.codex', 'config.toml']);
   assert.equal(p.configs[0]?.format, 'codex-toml');
 });
 
 test('the banner model is the plan’s own, so a codex session is not labelled with sonnet', () => {
-  assert.equal(plan('codex').model, 'sponsored/openai/gpt-5.1-codex');
-  assert.equal(plan('claude').model, 'sponsored/anthropic/claude-sonnet-5');
+  assert.equal(plan('codex').model, 'sponsored/openai/gpt-5.1-codex-mini');
+  assert.equal(plan('claude').model, 'sponsored/anthropic/claude-haiku-4.5');
 });
 
 test('codex has its own default model, and --model still overrides it', () => {
   assert.ok(plan('codex', { modelOverride: 'openai/gpt-5.5' }).args.includes('model=sponsored/openai/gpt-5.5'));
-  assert.ok(plan('codex', { paid: true }).args.includes('model=openai/gpt-5.1-codex'));
+  assert.ok(plan('codex', { paid: true }).args.includes('model=openai/gpt-5.1-codex-mini'));
 });
 
 // ── The config-file harnesses ─────────────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ test('kilo takes the OpenCode shape at its own trusted path, where {env:…} res
   const p = plan('kilo');
   assert.deepEqual(p.configs[0]?.segments, ['.config', 'kilo', 'kilo.jsonc']);
   const patch = p.configs[0]?.patch as { model: string };
-  assert.equal(patch.model, 'sponsoredtokens/sponsored/anthropic/claude-sonnet-5');
+  assert.equal(patch.model, 'sponsoredtokens/sponsored/anthropic/claude-haiku-4.5');
 });
 
 test('pi gets a provider in ~/.pi/agent/models.json with $VAR interpolation', () => {
@@ -168,12 +170,12 @@ test('junie goes through its LiteLLM provider, which needs no file at all', () =
   assert.equal(p.env.JUNIE_LLM_PROVIDER, 'litellm');
   assert.equal(p.env.JUNIE_LITELLM_URL, 'https://sponsoredtokens.com/api/v1');
   assert.equal(p.env.JUNIE_LITELLM_API_KEY, KEY);
-  assert.equal(p.env.JUNIE_MODEL, 'sponsored/anthropic/claude-sonnet-5');
+  assert.equal(p.env.JUNIE_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
 });
 
 test('t3 is a wrapper, so it gets the Claude Code variables to pass down', () => {
   const p = plan('t3');
-  assert.equal(p.env.ANTHROPIC_MODEL, 'sponsored/anthropic/claude-sonnet-5');
+  assert.equal(p.env.ANTHROPIC_MODEL, 'sponsored/anthropic/claude-haiku-4.5');
   assert.equal(p.bin, 't3');
 });
 

@@ -14,7 +14,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { chooseModel, fetchModelPlan, parseModelPlan, SAFE_MODEL, unlockNote } from '../src/models.ts';
+import { DEFAULT_MODEL } from '../src/harnesses.ts';
 import { planIsFresh } from '../src/config-file.ts';
 import { endpoints } from '../src/endpoints.ts';
 
@@ -181,4 +184,64 @@ test('a cached plan is believed for an hour, and a clock that moved backwards is
   assert.equal(planIsFresh('2026-09-05T10:59:59.000Z', now), false);
   assert.equal(planIsFresh('2026-09-05T12:30:00.000Z', now), false, 'a future timestamp is stale, not eternal');
   assert.equal(planIsFresh('not a date', now), false);
+});
+
+// ── TIER 3 IS PAID ONLY, AND THE CLI MUST NOT OFFER IT (Bruno, 2026-09-07) ────────────────────
+//
+// The wire says a paid-only rung two ways, and both have to be honoured: `paidOnly: true`, and a
+// `minReferrals` of `null` rather than a number, because `JSON.stringify(Infinity)` is `null`. The
+// failure this prevents is a specific sentence: "0 referrals unlock openai/o3-pro", printed by a
+// `status` command that read the null as a zero and promised a door that never opens.
+
+/** The listing as the worker sends it now: three referral rungs and one that referrals never buy. */
+function bodyWithPaidOnlyRung(tier: number, referralCount = 0) {
+  const base = body(tier, referralCount);
+  return {
+    ...base,
+    data: [...base.data, sponsored('openai/o3-pro', 3, 200)],
+    tiers: [
+      { tier: 0, minReferrals: 0, paidOnly: false, maxBlendedUsdPerMillion: 2, models: 2, current: tier === 0 },
+      { tier: 1, minReferrals: 2, paidOnly: false, maxBlendedUsdPerMillion: 10, models: 2, current: tier === 1 },
+      { tier: 2, minReferrals: 5, paidOnly: false, maxBlendedUsdPerMillion: null, models: 1, current: tier === 2 },
+      { tier: 3, minReferrals: null, paidOnly: true, maxBlendedUsdPerMillion: null, models: 1, current: false },
+    ],
+  };
+}
+
+test('a paid-only rung is never the next unlock, so nothing offers referrals for it', () => {
+  const plan = parseModelPlan(bodyWithPaidOnlyRung(2, 5))!;
+  assert.equal(plan.tier, 2);
+  assert.equal(plan.next, null, 'tier 2 is the top of the referral ladder');
+  assert.equal(unlockNote(plan), null, 'there is no referral count to quote for tier 3');
+});
+
+test('the rung below a paid-only one is still offered normally', () => {
+  const plan = parseModelPlan(bodyWithPaidOnlyRung(1, 2))!;
+  assert.deepEqual(plan.next, { tier: 2, minReferrals: 5, model: 'google/gemini-3-pro' });
+  assert.equal(unlockNote(plan), '3 referrals unlock google/gemini-3-pro');
+});
+
+test('a null minReferrals is never read as zero, even without the paidOnly flag', () => {
+  const raw = bodyWithPaidOnlyRung(2, 5);
+  const plan = parseModelPlan({ ...raw, tiers: raw.tiers.map((band) => ({ ...band, paidOnly: undefined })) })!;
+  assert.equal(plan.next, null);
+});
+
+// ── The three constants that have to be the same tier-0 id ────────────────────────────────────
+
+test('SAFE_MODEL, DEFAULT_MODEL and the site’s EXAMPLE_MODEL_ID are one string', () => {
+  assert.equal(SAFE_MODEL, DEFAULT_MODEL, 'the offline fallback and the built-in default must agree');
+
+  // The site's own constant, read as TEXT: this package does not depend on the site, and a bad path
+  // must fail loudly rather than silently skip the check (the same shape as `version.test.ts`).
+  const sitePath = fileURLToPath(new URL('../../../sponsoredtokens-site/src/lib/example-model.ts', import.meta.url));
+  const source = readFileSync(sitePath, 'utf8');
+  const match = /export const EXAMPLE_MODEL_ID = '([^']+)'/.exec(source);
+  assert.ok(match, 'sponsoredtokens-site/src/lib/example-model.ts no longer declares EXAMPLE_MODEL_ID');
+  assert.equal(
+    DEFAULT_MODEL,
+    match[1],
+    'the CLI default and the site’s example model must be the same tier-0 id, or a reader who pastes ' +
+      'the site’s snippet and a reader who runs the CLI are told two different things',
+  );
 });

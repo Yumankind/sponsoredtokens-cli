@@ -123,9 +123,9 @@ test('--amount is whole dollars', () => {
 });
 
 test('below the minimum and above the ceiling are named refusals, before any request', () => {
-  const low = resolveAmountCents({ dollars: 5, board: BOARD, audience: 'global' });
+  const low = resolveAmountCents({ dollars: 1, board: BOARD, audience: 'global' });
   assert.ok(isRefusal(low) && low.code === 'amount_below_minimum');
-  assert.match(low.message, /\$10\b/);
+  assert.match(low.message, /\$2\b/);
 
   const high = resolveAmountCents({ dollars: 100_001, board: BOARD, audience: 'global' });
   assert.ok(isRefusal(high) && high.code === 'amount_above_maximum');
@@ -134,10 +134,10 @@ test('below the minimum and above the ceiling are named refusals, before any req
 
 test('an unreachable board still takes --amount, against the audience’s own floor', () => {
   assert.equal(resolveAmountCents({ dollars: 500, board: null, audience: 'global' }), 50_000);
-  assert.equal(resolveAmountCents({ dollars: 10, board: null, audience: 'global' }), MIN_GLOBAL_CENTS);
-  const low = resolveAmountCents({ dollars: 9, board: null, audience: 'global' });
+  assert.equal(resolveAmountCents({ dollars: 2, board: null, audience: 'global' }), MIN_GLOBAL_CENTS);
+  const low = resolveAmountCents({ dollars: 1, board: null, audience: 'global' });
   assert.ok(isRefusal(low) && low.code === 'amount_below_minimum');
-  assert.equal(resolveAmountCents({ dollars: 10, board: null, audience: ['PT'] }), MIN_LOCAL_CENTS);
+  assert.equal(resolveAmountCents({ dollars: 2, board: null, audience: ['PT'] }), MIN_LOCAL_CENTS);
 });
 
 test('an unreachable board with no --amount says so rather than guessing an amount', () => {

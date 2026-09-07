@@ -34,7 +34,7 @@ import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isC
  * `Version:` line of `src/content/terms.md`. `tests/sponsor.test.ts` reads that file and fails if
  * the two disagree.
  */
-export const TERMS_VERSION = '2026-09-07.2';
+export const TERMS_VERSION = '2026-09-07.3';
 
 /**
  * The platforms a bare `@handle` can be on.
@@ -55,12 +55,15 @@ export const MAX_SPONSOR_CENTS = 10_000_000;
 /**
  * The minimums, from `docs/sponsoredtokens/audience-contract.md`.
  *
- * A global sponsorship is on every board there is, and it starts at $10. A local one is priced BY
- * THE COUNTRY: $10 for each board it joins — one country $10, three $30, all 248-but-one $2,480.
- * That is the whole shape of the thing. A country is a board, a board is $10, and a sponsor buying
+ * A global sponsorship is on every board there is, and it starts at $2. A local one is priced BY
+ * THE COUNTRY: $2 for each board it joins — one country $2, three $6, all 248-but-one $496.
+ * That is the whole shape of the thing. A country is a board, a board is $2, and a sponsor buying
  * thirty of them is buying thirty places rather than one cheap ticket to most of the pool.
  *
- * So $10 is the entry price everywhere, and TWO countries already cost more than the world. That is
+ * TWO DOLLARS AND NOT ONE (Bruno, 2026-09-07): Stripe's fee on a card payment is 2.9 % plus 30c, so
+ * a third of a $1 sponsorship never reaches the pool and under a fifth of a $2 one does not.
+ *
+ * So $2 is the entry price everywhere, and TWO countries already cost more than the world. That is
  * deliberate, not an accident of the arithmetic: naming countries is buying boards one at a time,
  * and the global board is one board. Naming ALL of them is not an expensive local sponsorship, it is
  * the global board described the long way — "everyone" IS global whatever either costs — which is
@@ -70,8 +73,8 @@ export const MAX_SPONSOR_CENTS = 10_000_000;
  * should multiply it. The worker enforces the same arithmetic; doing it here too means the refusal
  * arrives before a Checkout session exists.
  */
-export const MIN_GLOBAL_CENTS = 1_000;
-export const MIN_LOCAL_CENTS = 1_000;
+export const MIN_GLOBAL_CENTS = 200;
+export const MIN_LOCAL_CENTS = 200;
 
 /** A refusal this CLI makes on its own, before any request. The code is what `--json` prints. */
 export interface SponsorRefusal {
@@ -130,7 +133,7 @@ export type Audience = 'global' | string[];
  * Printed, verbatim, when a country list turns out to name every country there is.
  *
  * There is NO ceiling on `--audience`. A local sponsorship can name any number of countries and pays
- * $10 for each, so 84 countries is $840 and there is nothing to refuse or round off — the price is
+ * $2 for each, so 84 countries is $168 and there is nothing to refuse or round off — the price is
  * the count. The single exception is the set that leaves nobody out: naming all 249 is not a very
  * long local sponsorship, it is a global one described the long way, so it is sold as global. The
  * collapse is about WHO is covered rather than what it costs — "everyone" is the global board, and
@@ -164,7 +167,7 @@ export interface AudienceChoice {
 
 export const GLOBAL_AUDIENCE: AudienceChoice = { audience: 'global', board: null, collapsedFrom: null };
 
-/** $10 for global, $10 per country for local. The number, without the sentence explaining it. */
+/** $2 for global, $2 per country for local. The number, without the sentence explaining it. */
 export const minimumCentsFor = (audience: Audience): number =>
   audience === 'global' ? MIN_GLOBAL_CENTS : MIN_LOCAL_CENTS * audience.length;
 
@@ -256,7 +259,7 @@ const countriesNeed = (n: number): string => (n === 1 ? '1 country needs' : `${n
 /**
  * The amount, in cents, or a refusal — decided entirely before anything is POSTed.
  *
- * The minimum is the AUDIENCE's ($10 global, $10 a country local), raised to the board's own if
+ * The minimum is the AUDIENCE's ($2 global, $2 a country local), raised to the board's own if
  * that board asks for more: the two agree today, and if the pool ever raises one of them the CLI
  * follows the live number rather than minting a session the worker will refuse.
  *
@@ -344,7 +347,7 @@ export function rankLabel(rank: Rank): string {
  * The rank as the terminal prints it — and, for a local sponsorship, WHICH board it is a rank on.
  *
  * A `#1` that does not say "on the local board of PT" is the same sentence a $100,000 global
- * sponsorship earns, for $10. The board named is the first country the caller chose, which is the
+ * sponsorship earns, for $2. The board named is the first country the caller chose, which is the
  * board the amount was suggested against.
  */
 export function rankLine(rank: Rank, choice: AudienceChoice): string {

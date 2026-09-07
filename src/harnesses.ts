@@ -40,14 +40,32 @@ import type { Endpoints } from './endpoints.ts';
 import { CODEX_PROVIDER_ID } from './codex-config.ts';
 import type { JsonObject } from './json-config.ts';
 
-/** The pool's default big model, without the prefix. `resolveModel` adds it. */
-export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5';
+/**
+ * The pool's default big model, without the prefix. `resolveModel` adds it.
+ *
+ * TIER 0, AND IT HAS TO BE (Bruno, 2026-09-07). This constant is the fallback used when the live plan
+ * (`models.ts`) could not be fetched, which is precisely the moment nothing is known about the
+ * caller's rung, so it must be a model EVERY account can call, and a brand-new account is tier 0.
+ * It used to be `anthropic/claude-sonnet-5`, which is tier 1: an offline first launch met a 402
+ * asking for two referrals.
+ *
+ * It is the same id the site's every example uses (`sponsoredtokens-site/src/lib/example-model.ts`),
+ * and `tests/models.test.ts` fails if the two drift apart, the way `version.ts` is pinned to
+ * `package.json`.
+ */
+export const DEFAULT_MODEL = 'anthropic/claude-haiku-4.5';
 
-/** The cheap model Claude Code uses for its background chores. */
+/** The cheap model Claude Code uses for its background chores. Tier 0, as `DEFAULT_MODEL` now is. */
 export const DEFAULT_SMALL_MODEL = 'anthropic/claude-haiku-4.5';
 
-/** Codex is a different shape of model and the plan pins its own default. */
-export const DEFAULT_CODEX_MODEL = 'openai/gpt-5.1-codex';
+/**
+ * Codex is a different shape of model and the plan pins its own default.
+ *
+ * `-mini`, because the same rule applies here: `openai/gpt-5.1-codex` blends to $22.50 and is tier 1,
+ * so a fallback on it was a 402 on a fresh account's first `sponsoredtokens codex`. The mini variant
+ * is $4.50, which is tier 0, and it speaks the same Responses shape.
+ */
+export const DEFAULT_CODEX_MODEL = 'openai/gpt-5.1-codex-mini';
 
 /** The prefix that means "the pool pays" (mirrors `worker/src/sponsored/config.ts`). */
 export const SPONSORED_PREFIX = 'sponsored/';

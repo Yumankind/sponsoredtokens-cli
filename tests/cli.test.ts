@@ -41,7 +41,7 @@ const LEADERBOARD = {
   ],
   total: 13,
   suggestedCents: 48_700,
-  minimumCents: 1_000,
+  minimumCents: 200,
 };
 
 /** `?board=local&country=PT`: the sponsors whose audience includes Portugal, and nobody else. */
@@ -55,7 +55,7 @@ const LOCAL_LEADERBOARD = {
   ],
   total: 2,
   suggestedCents: 4_500,
-  minimumCents: 1_000,
+  minimumCents: 200,
 };
 
 const RECENT = {
@@ -357,7 +357,7 @@ test('`--quiet` leaves the four facts and drops the wordmark and the explanation
 
 test('an amount under the pool’s minimum never reaches the pool', async () => {
   lastCheckout = null;
-  const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '5', '--json', '--no-open'], anonymous);
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--amount', '1', '--json', '--no-open'], anonymous);
   assert.equal(code, 1);
   assert.equal((JSON.parse(stdout) as { code: string }).code, 'amount_below_minimum');
   assert.equal(lastCheckout, null, 'no Checkout session was minted for a typo');
@@ -424,20 +424,20 @@ test('$10 is the entry price on either board — the world, or one country', asy
   assert.equal((JSON.parse(local.stdout) as { amountCents: number }).amountCents, 1_000);
 });
 
-test('$5 is below both minimums, and the refusal says which board it was measured against', async () => {
+test('$1 is below both minimums, and the refusal says which board it was measured against', async () => {
   lastCheckout = null;
-  const global = await run(['sponsor', 'acme.com', '--amount', '5', '--json', '--no-open'], anonymous);
+  const global = await run(['sponsor', 'acme.com', '--amount', '1', '--json', '--no-open'], anonymous);
   assert.equal(global.code, 1);
   const refusal = JSON.parse(global.stdout) as { code: string; error: string };
   assert.equal(refusal.code, 'amount_below_minimum');
   assert.match(refusal.error, /global/);
-  assert.match(refusal.error, /\$10\b/);
+  assert.match(refusal.error, /\$2\b/);
   assert.equal(lastCheckout, null, 'nothing was minted');
 
-  // Two countries are two boards, so $10 no longer covers it — and the refusal counts them back.
-  const pair = await run(['sponsor', 'acme.com', '--audience', 'PT,ES', '--amount', '10', '--json', '--no-open'], anonymous);
+  // Two countries are two boards, so $2 no longer covers it — and the refusal counts them back.
+  const pair = await run(['sponsor', 'acme.com', '--audience', 'PT,ES', '--amount', '2', '--json', '--no-open'], anonymous);
   assert.equal(pair.code, 1);
-  assert.match((JSON.parse(pair.stdout) as { error: string }).error, /2 countries need at least \$20\b/);
+  assert.match((JSON.parse(pair.stdout) as { error: string }).error, /2 countries need at least \$4\b/);
   assert.equal(lastCheckout, null);
 });
 
