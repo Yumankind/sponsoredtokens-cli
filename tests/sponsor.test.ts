@@ -195,6 +195,25 @@ test('a worker refusal keeps its code and gains a sentence', () => {
   // `invalid_target` carries the worker's own explanation, which is better than ours.
   assert.match(refusalFrom(400, { error: 'invalid_target', message: 'That is not a valid GitHub handle.' }).message, /GitHub handle/);
 
+  // A LISTING RULE (Bruno, 2026-09-07) is its own code, so a terminal can tell "you typed it wrong"
+  // apart from "we will not carry that", and the worker's sentence is what carries the detail.
+  const chat = refusalFrom(400, {
+    error: 'target_not_allowed',
+    reason: 'chat_link',
+    message: 'Chat and invite links cannot be listed. The board is for products and profiles.',
+  });
+  assert.equal(chat.code, 'target_not_allowed');
+  assert.match(chat.message, /cannot be listed/);
+  assert.match(chat.message, /products and profiles/);
+  // The shortener refusal is the same code with the worker's other sentence, unchanged by the CLI.
+  const short = refusalFrom(400, {
+    error: 'target_not_allowed',
+    reason: 'shortener',
+    message: 'That short link did not resolve, so we cannot tell where it goes. Enter the address it points at.',
+  });
+  assert.equal(short.code, 'target_not_allowed');
+  assert.match(short.message, /did not resolve/);
+
   // Anything unknown is reported as itself rather than as "something went wrong".
   const unknown = refusalFrom(503, { error: 'sponsoredtokens is not configured', variable: 'STRIPE_SECRET_KEY' });
   assert.match(unknown.message, /not configured/);

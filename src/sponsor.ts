@@ -34,7 +34,7 @@ import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isC
  * `Version:` line of `src/content/terms.md`. `tests/sponsor.test.ts` reads that file and fails if
  * the two disagree.
  */
-export const TERMS_VERSION = '2026-09-07.1';
+export const TERMS_VERSION = '2026-09-07.2';
 
 /**
  * The platforms a bare `@handle` can be on.
@@ -388,6 +388,11 @@ const WORKER_REFUSALS: Record<string, string> = {
   terms_not_accepted: 'The terms were not accepted. This is a bug in the CLI — please report it.',
   terms_version_required: 'The terms version was rejected. Update the CLI: npm i -g sponsoredtokens.',
   invalid_target: 'That is not a website or a handle the pool can sponsor.',
+  // A LISTING RULE, not a typo (Bruno, 2026-09-07). The worker read the link perfectly and answers
+  // with `reason` (`chat_link`, `shortener`) and a sentence of its own; the sentence is what a
+  // person needs, so this line only says which kind of answer it is and then gets out of the way.
+  // `refusalFrom` appends the worker's `message`, so a reason invented later still reads as itself.
+  target_not_allowed: 'That link cannot be listed.',
   invalid_audience: 'The pool refused that audience. Give it country codes (--audience PT,ES) or --audience global.',
   invalid_email: 'That email address was refused.',
   invalid_json: 'The pool could not read the request. This is a bug in the CLI — please report it.',
