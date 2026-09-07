@@ -34,7 +34,7 @@ import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isC
  * `Version:` line of `src/content/terms.md`. `tests/sponsor.test.ts` reads that file and fails if
  * the two disagree.
  */
-export const TERMS_VERSION = '2026-09-07';
+export const TERMS_VERSION = '2026-09-07.1';
 
 /**
  * The platforms a bare `@handle` can be on.
