@@ -59,6 +59,21 @@ import {
 } from './sponsor.ts';
 import { chooseModel, fetchModelPlan, unlockNote, type ModelChoice, type ModelPlan } from './models.ts';
 import {
+  checkForUpdate,
+  installCommand,
+  installKind,
+  latestUrl,
+  readStamp,
+  shouldCheck,
+  updateNotice,
+  updateSpawn,
+  versionLine,
+  compareVersions,
+  writeStamp,
+  type CheckResult,
+  type InstallKind,
+} from './update-check.ts';
+import {
   DEFAULT_MODEL,
   HARNESS_IDS,
   isHarness,
@@ -604,6 +619,90 @@ function launchBanner(style: Ink, parts: string[]): string {
     .join('')}`;
 }
 
+// ── The update check ──────────────────────────────────────────────────────────────────────────
+
+/** The directory the key lives in. The stamp goes beside it. */
+function configDir(): string {
+  return configLocation(process.platform, process.env, homedir()).dir;
+}
+
+/** How this copy was installed, and therefore which one-liner updates it. */
+function thisInstall(): InstallKind {
+  return installKind({ execPath: process.execPath, scriptPath: process.argv[1] ?? null }, process.platform, homedir());
+}
+
+/**
+ * Start the check, or decide not to. Returns a promise that NEVER rejects and never blocks a caller
+ * that forgets it: a run that ends in a throw drops this on the floor, and the 2 s abort is what
+ * stops that from holding the process open.
+ */
+function beginUpdateCheck(ep: Endpoints, parsed: ParsedArgs): Promise<CheckResult> | null {
+  const gate = { command: parsed.command, quiet: parsed.quiet, stderrIsTty: process.stderr.isTTY === true };
+  if (!shouldCheck(gate, isHarness)) return null;
+  const dir = configDir();
+  return checkForUpdate(latestUrl(ep), {
+    now: Date.now(),
+    fetchImpl: fetch,
+    readStamp: () => readStamp(dir),
+    writeStamp: (stamp) => writeStamp(dir, stamp),
+  }).catch(() => ({ fetched: null, known: null }));
+}
+
+/** One line, last, on stderr — or nothing at all, which is the usual answer. */
+async function announceUpdate(pending: Promise<CheckResult> | null): Promise<void> {
+  if (!pending) return;
+  const line = updateNotice(await pending, VERSION, thisInstall());
+  if (line) note(line);
+}
+
+/**
+ * `stok update` — run the one-liner that installs this copy, after showing it.
+ *
+ * Printed before it runs, always, because this is a command that downloads and executes something:
+ * a person watching should be able to read what is about to happen and stop it. When the platform
+ * cannot run that particular line (a PowerShell one-liner on a Mac), the line is all they get, which
+ * is still the answer to "how do I update this".
+ */
+async function update(ep: Endpoints): Promise<number> {
+  const style = errInk();
+  const dir = configDir();
+  const result = await checkForUpdate(latestUrl(ep), {
+    now: Date.now(),
+    fetchImpl: fetch,
+    // `update` is the one caller that ignores the daily throttle: somebody typing it has asked.
+    ttlMs: 0,
+    readStamp: () => readStamp(dir),
+    writeStamp: (stamp) => writeStamp(dir, stamp),
+  }).catch((): CheckResult => ({ fetched: null, known: null }));
+
+  const kind = thisInstall();
+  const command = installCommand(kind, result.fetched);
+  if (result.known && !isNewerThanRunning(result.known)) {
+    note(`  Already on ${VERSION}, which is the latest.`);
+    return 0;
+  }
+  if (result.known) note(`  ${result.known} is out; you have ${VERSION}.`);
+  note(`  ${style.code(command)}`);
+
+  const plan = updateSpawn(kind, command, process.platform, process.env);
+  if (!plan) {
+    note('  Run that yourself: this machine cannot run that installer for you.');
+    return 1;
+  }
+  note('');
+  try {
+    return await runChild(plan.file, plan.args, process.env);
+  } catch {
+    note('  Could not start the installer. Run the line above yourself.');
+    return 1;
+  }
+}
+
+/** Small enough to inline, named so `update` reads as prose. */
+function isNewerThanRunning(version: string): boolean {
+  return compareVersions(version, VERSION) > 0;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────────────────────
 
 export async function main(argv: string[]): Promise<number> {
@@ -613,7 +712,10 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   if (parsed.version) {
-    out(VERSION);
+    // The stamp only, never a request: `--version` is what a script asks, and it must not be able to
+    // block on the network. The version is still the first token of the line, so `cut -d' ' -f1`
+    // keeps working for anyone parsing it.
+    out(versionLine(VERSION, readStamp(configDir())?.latest ?? null));
     return 0;
   }
   if (parsed.help || !parsed.command) {
@@ -623,16 +725,36 @@ export async function main(argv: string[]): Promise<number> {
 
   const ep = endpoints(process.env, parsed.region ? parseRegion(parsed.region) : parseRegion(process.env.SPONSOREDTOKENS_REGION));
 
-  if (parsed.command === 'logout') {
+  if (parsed.command === 'update') return update(ep);
+
+  // The check rides ALONGSIDE the command, never in front of it: started here, awaited after the
+  // command has finished writing. A `finally` rather than a success path, because a command that
+  // failed is a good moment to hear that the version you are on is not the current one.
+  const pending = beginUpdateCheck(ep, parsed);
+  try {
+    return await dispatch(parsed, parsed.command, ep);
+  } finally {
+    await announceUpdate(pending);
+  }
+}
+
+/**
+ * Everything that needs a command word, with that word passed in already narrowed.
+ *
+ * Split out of `main` so the update check can wrap it in one `try`. `commandName` rather than
+ * `parsed.command` throughout, because `run` binds its own `command` for the program it launches.
+ */
+async function dispatch(parsed: ParsedArgs, commandName: string, ep: Endpoints): Promise<number> {
+  if (commandName === 'logout') {
     const { file } = configLocation(process.platform, process.env, homedir());
     note(clearConfig() ? `Removed ${file}. Your key on the server is unchanged — rotate it on the account page.` : 'Nothing stored; already signed out.');
     return 0;
   }
-  if (parsed.command === 'reset') return reset(ep, parsed.rest[0] ?? null);
-  if (parsed.command === 'login') return login(ep, parsed.quiet);
-  if (parsed.command === 'status') return status(ep, parsed.quiet);
+  if (commandName === 'reset') return reset(ep, parsed.rest[0] ?? null);
+  if (commandName === 'login') return login(ep, parsed.quiet);
+  if (commandName === 'status') return status(ep, parsed.quiet);
   // Sponsoring the pool needs no key: the endpoint is public (see `sponsor` above).
-  if (parsed.command === 'sponsor') return sponsor(ep, parsed);
+  if (commandName === 'sponsor') return sponsor(ep, parsed);
 
   // Everything below needs a key.
   const key = resolveKey();
@@ -648,7 +770,7 @@ export async function main(argv: string[]): Promise<number> {
    * for; `--model` means they have already answered the question. Both cases keep the old constants
    * and cost no request.
    */
-  const chosen: ModelChoice | null = parsed.paid || parsed.model ? null : chooseModel(await modelPlan(ep, key.token), parsed.command);
+  const chosen: ModelChoice | null = parsed.paid || parsed.model ? null : chooseModel(await modelPlan(ep, key.token), commandName);
 
   const ctx: PlanContext = {
     key: key.token,
@@ -662,7 +784,7 @@ export async function main(argv: string[]): Promise<number> {
   const style = errInk();
   const payer = parsed.paid ? 'your own credits' : 'the pool pays';
 
-  if (parsed.command === 'run') {
+  if (commandName === 'run') {
     const [command, ...rest] = parsed.rest;
     if (!command) {
       note('`run` needs a command: stok run <cmd…>');
@@ -676,15 +798,15 @@ export async function main(argv: string[]): Promise<number> {
     });
   }
 
-  if (!isHarness(parsed.command)) {
-    note(`Unknown command \`${parsed.command}\`. Try \`stok --help\`.`);
+  if (!isHarness(commandName)) {
+    note(`Unknown command \`${commandName}\`. Try \`stok --help\`.`);
     return 2;
   }
-  const plan = planFor(parsed.command, ctx)!;
+  const plan = planFor(commandName, ctx)!;
   return launch(plan, parsed.rest, ep, {
     yes: parsed.yes,
     quiet: parsed.quiet,
-    banner: launchBanner(style, [parsed.command, plan.model, payer]),
+    banner: launchBanner(style, [commandName, plan.model, payer]),
     modelNote: chosen?.reason ?? null,
   });
 }

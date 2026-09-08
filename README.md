@@ -80,6 +80,29 @@ somebody's PATH is a bug report you cannot fix from here: `st` is the suckless t
 Homebrew formula, `stk` is a Homebrew formula, and `spt` is the Spotify TUI. `stok` collides with
 nothing we could find.
 
+## Updating
+
+```sh
+stok update
+```
+
+It runs the one-liner that installs THIS copy: the curl or irm line for a binary install, `npm i -g
+sponsoredtokens` for an npm one. The line is printed before it runs, and on a machine that cannot run
+it (a PowerShell one-liner on a Mac) the line is all you get, which is still the answer.
+
+You will usually be told first. Commands that already talk to the pool fetch
+`https://sponsoredtokens.com/cli/latest.json` alongside their own work, on a 2 second budget and at
+most once a day per machine, and print one line after everything else when there is a newer release:
+
+```
+stok 0.4.1 is out, you have 0.4.0. Update: curl -fsSL https://sponsoredtokens.com/cli/install.sh | bash
+```
+
+No key is sent, nothing is delayed or reordered by it, every failure is silent, and it says nothing
+at all under `--quiet` or when stderr is not a terminal, so it can never appear in captured output.
+The day's answer is remembered in `~/.sponsoredtokens/update.json`, which is where `stok --version`
+gets the `latest 0.4.1` it prints beside the running version.
+
 ## Options
 
 | | |
