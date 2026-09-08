@@ -46,6 +46,7 @@ import {
   COLLAPSED_TO_GLOBAL,
   TERMS_VERSION,
   checkoutBody,
+  parseAnonymous,
   isRefusal,
   parseAudience,
   parseTarget,
@@ -53,6 +54,7 @@ import {
   rankLine,
   resolveAmountCents,
   sponsorJson,
+  type SponsorTarget,
   type SponsorRefusal,
 } from './sponsor.ts';
 import { chooseModel, fetchModelPlan, unlockNote, type ModelChoice, type ModelPlan } from './models.ts';
@@ -286,8 +288,20 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
     return 1;
   };
 
-  const target = parseTarget(parsed.rest[0], parsed.platform);
-  if (isRefusal(target)) return fail(target);
+  // ── WHO IS BEING NAMED, OR NOBODY (Bruno, 2026-09-08) ────────────────────────────────────────
+  //
+  // `--anonymous` is the absence of a target rather than a modifier of one, so it is answered first
+  // and a target beside it is a usage error rather than something quietly dropped. Everything below
+  // is identical either way: the audience, the board, the minimum, the ceiling and the terms line.
+  let target: SponsorTarget | null = null;
+  if (parsed.anonymous) {
+    const clash = parseAnonymous(parsed.rest[0]);
+    if (clash) return fail(clash);
+  } else {
+    const parsedTarget = parseTarget(parsed.rest[0], parsed.platform);
+    if (isRefusal(parsedTarget)) return fail(parsedTarget);
+    target = parsedTarget;
+  }
 
   // The audience comes first, because it chooses the BOARD everything below is measured against:
   // the global one, or the local board of the first country named (`--audience PT,ES` → PT).
@@ -320,7 +334,7 @@ async function sponsor(ep: Endpoints, parsed: ParsedArgs): Promise<number> {
       write(banner(VERSION, style));
       write('');
     }
-    write(row('Sponsor', style.strong(target.value), style));
+    write(row('Sponsor', style.strong(target ? target.value : 'Anonymous'), style));
     write(row('Amount', style.accent(money(result.amountCents)), style));
     if (rank) write(row('Rank', rankLine(rank, choice), style));
     write(row('Pay', style.link(result.checkoutUrl), style));

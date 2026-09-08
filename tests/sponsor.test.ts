@@ -251,6 +251,7 @@ test('the JSON an agent reads names the operator as the payer', () => {
   assert.deepEqual(json, {
     target: 'https://acme.com',
     platform: null,
+    anonymous: false,
     audience: 'global',
     amountCents: 5_000,
     rank: 4,

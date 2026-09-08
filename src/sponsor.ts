@@ -34,7 +34,7 @@ import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isC
  * `Version:` line of `src/content/terms.md`. `tests/sponsor.test.ts` reads that file and fails if
  * the two disagree.
  */
-export const TERMS_VERSION = '2026-09-07.3';
+export const TERMS_VERSION = '2026-09-08.1';
 
 /**
  * The platforms a bare `@handle` can be on.
@@ -109,7 +109,7 @@ const isPlatform = (value: string): value is PlatformId => (PLATFORM_IDS as read
  */
 export function parseTarget(raw: string | undefined, platform: string | null): SponsorTarget | SponsorRefusal {
   const target = (raw ?? '').trim();
-  if (!target) return refuse('missing_target', 'sponsor needs a website or a handle: sponsoredtokens sponsor acme.com');
+  if (!target) return refuse('missing_target', 'sponsor needs a website or a handle: sponsoredtokens sponsor acme.com, or --anonymous');
   if (target.length > 300) return refuse('invalid_target', 'That is too long to be a website or a handle.');
 
   if (platform !== null && !isPlatform(platform)) {
@@ -122,6 +122,25 @@ export function parseTarget(raw: string | undefined, platform: string | null): S
   // A URL: keep it as typed for the worker, and only add the scheme people leave off.
   const value = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(target) ? target : `https://${target}`;
   return { value, platform: null };
+}
+
+/**
+ * `--anonymous`, which is the ABSENCE of a target rather than a modifier of one.
+ *
+ * The worker refuses a body carrying both `anonymous: true` and a target, deliberately: a caller
+ * that sent both has not decided, and quietly dropping the target would list somebody anonymously
+ * who may have meant the opposite. This says the same thing one round trip earlier, and it is the
+ * only thing this file has to check about the flag: everything else about an anonymous sponsorship
+ * (the audience, the minimum, the ceiling, the terms) is identical to a named one.
+ */
+export function parseAnonymous(raw: string | undefined): SponsorRefusal | null {
+  if ((raw ?? '').trim()) {
+    return refuse(
+      'anonymous_takes_no_target',
+      'An anonymous sponsorship names nobody. Drop the target, or drop --anonymous.',
+    );
+  }
+  return null;
 }
 
 // ── The audience ──────────────────────────────────────────────────────────────────────────────
@@ -358,8 +377,11 @@ export function rankLine(rank: Rank, choice: AudienceChoice): string {
 
 /** Exactly what `POST /api/sponsor/checkout` reads. Nothing optional is sent as `undefined`. */
 export interface CheckoutBody {
-  target: string;
+  /** The site or handle to credit. Absent exactly when `anonymous` is set, and never both. */
+  target?: string;
   platform?: PlatformId;
+  /** `true` and no target: the sponsorship shows as Anonymous, with no link and no page to screen. */
+  anonymous?: true;
   amountCents: number;
   /** `'global'`, or the sorted country codes. Sent always, so the stored audience is never a guess. */
   audience: Audience;
@@ -367,10 +389,11 @@ export interface CheckoutBody {
   acceptTerms: true;
 }
 
-export function checkoutBody(target: SponsorTarget, amountCents: number, audience: Audience): CheckoutBody {
+export function checkoutBody(target: SponsorTarget | null, amountCents: number, audience: Audience): CheckoutBody {
   return {
-    target: target.value,
-    ...(target.platform ? { platform: target.platform } : {}),
+    // ONE SHAPE OR THE OTHER, NEVER BOTH: `target` names somebody, `anonymous` says there is
+    // nobody to name, and the worker refuses a body carrying the two together.
+    ...(target ? { target: target.value, ...(target.platform ? { platform: target.platform } : {}) } : { anonymous: true as const }),
     amountCents,
     audience,
     termsVersion: TERMS_VERSION,
@@ -385,6 +408,7 @@ export function checkoutBody(target: SponsorTarget, amountCents: number, audienc
  * it — a new refusal should read as itself rather than as "something went wrong".
  */
 const WORKER_REFUSALS: Record<string, string> = {
+  anonymous_takes_no_target: 'An anonymous sponsorship names nobody. Drop the target, or drop --anonymous.',
   amount_below_minimum: 'That is below the pool’s minimum sponsorship.',
   amount_above_maximum: 'That is above the $100,000 a single payment can carry.',
   amount_must_be_integer_cents: 'The amount has to be a whole number of cents.',
@@ -442,8 +466,11 @@ export function checkoutResult(body: unknown, amountCents: number): CheckoutResu
 // ── The JSON an agent reads ───────────────────────────────────────────────────────────────────
 
 export interface SponsorJson {
-  target: string;
+  /** The site or handle, or null when the sponsorship names nobody. */
+  target: string | null;
   platform: PlatformId | null;
+  /** True when nobody is being named: no site, no handle, no link, no page to screen. */
+  anonymous: boolean;
   /** `'global'`, or the sorted countries this sponsorship will be seen in. */
   audience: Audience;
   amountCents: number;
@@ -463,15 +490,16 @@ export interface SponsorJson {
  * the agent can settle it.
  */
 export function sponsorJson(
-  target: SponsorTarget,
+  target: SponsorTarget | null,
   amountCents: number,
   rank: Rank | null,
   result: CheckoutResult,
   audience: Audience,
 ): SponsorJson {
   return {
-    target: target.value,
-    platform: target.platform,
+    target: target ? target.value : null,
+    platform: target ? target.platform : null,
+    anonymous: target === null,
     audience,
     amountCents: result.amountCents,
     rank: rank ? rank.position : null,

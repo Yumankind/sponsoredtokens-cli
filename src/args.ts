@@ -48,6 +48,13 @@ export interface ParsedArgs {
   platform: string | null;
   /** `sponsor --audience`, raw: `global`, or a comma list of codes and group names. Validated in `sponsor.ts`. */
   audience: string | null;
+  /**
+   * `sponsor --anonymous`: name nobody.
+   *
+   * The command then takes NO target and refuses one, exactly as the worker does. Validated in
+   * `sponsor.ts`, like every other sponsor flag.
+   */
+  anonymous: boolean;
   /** `sponsor --json`: one object on stdout and nothing else. */
   json: boolean;
   /** False under `--no-open`: print the link and leave the browser alone. */
@@ -69,6 +76,7 @@ const EMPTY: ParsedArgs = {
   amount: null,
   platform: null,
   audience: null,
+  anonymous: false,
   json: false,
   open: true,
   error: null,
@@ -101,6 +109,9 @@ function takeFlag(argv: string[], i: number, out: ParsedArgs, sponsorFlags: bool
     switch (token) {
       case '--json':
         out.json = true;
+        return 1;
+      case '--anonymous':
+        out.anonymous = true;
         return 1;
       case '--no-open':
         out.open = false;
@@ -312,6 +323,9 @@ sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
                     global sponsorship, at the global minimum, and it says so
   ${command('--platform <id>')}   for a bare @handle — x, github, youtube, tiktok, bluesky.
                     X when not given
+  ${command('--anonymous')}        name nobody: no site, no handle, no link. The sponsorship shows as
+                    ${style.strong('Anonymous')} on the board and in every footer it pays for. Takes no
+                    target, and the minimum and the audience are unchanged
   ${command('--json')}            one object on stdout, nothing else. For an agent
   ${command('--no-open')}         print the link and the QR code; do not open a browser
 

@@ -296,6 +296,7 @@ test('`sponsor --json` prints ONE object on stdout and nothing else, with the op
   assert.deepEqual(JSON.parse(stdout), {
     target: 'https://acme.com',
     platform: null,
+    anonymous: false,
     audience: 'global',
     amountCents: 10_000,
     rank: 4,
@@ -373,6 +374,7 @@ test('a local audience reads the LOCAL board and carries the sorted countries in
   assert.deepEqual(JSON.parse(stdout), {
     target: 'https://acme.com',
     platform: null,
+    anonymous: false,
     audience: ['ES', 'PT'],
     amountCents: 2_000,
     rank: 2,
@@ -521,4 +523,72 @@ test('`--json` after another command belongs to that command, not to us', async 
     '--json',
   ]);
   assert.equal(stdout.trim(), '--json');
+});
+
+// ── `--anonymous` (Bruno, 2026-09-08) ─────────────────────────────────────────────────────────
+//
+// The flag is the ABSENCE of a target rather than a modifier of one, and the body it sends is a
+// different shape rather than the same shape with a field added. Everything else about the command
+// is unchanged: the board is still read, the amount is still resolved against it, the minimum still
+// applies, and the terms line still names the operator as the payer.
+
+test('--anonymous sends `anonymous: true` and NO target', async () => {
+  const { code, stdout } = await run(['sponsor', '--anonymous', '--amount', '50', '--json', '--no-open'], anonymous);
+  assert.equal(code, 0);
+  assert.deepEqual(lastCheckout?.body, {
+    anonymous: true,
+    amountCents: 5_000,
+    audience: 'global',
+    termsVersion: TERMS_VERSION,
+    acceptTerms: true,
+  });
+  assert.deepEqual(JSON.parse(stdout), {
+    target: null,
+    platform: null,
+    anonymous: true,
+    audience: 'global',
+    amountCents: 5_000,
+    // The rank is the ordinary one: $50 against the fixture board's three balances puts this
+    // sponsorship fourth. An anonymous sponsorship ranks like any other, by what is left of it.
+    rank: 4,
+    checkoutUrl: CHECKOUT_URL,
+    shortUrl: null,
+    terms: { version: TERMS_VERSION, payer: 'operator' },
+  });
+});
+
+test('a target beside --anonymous is a usage error, not a target quietly dropped', async () => {
+  const { code, stdout } = await run(['sponsor', 'acme.com', '--anonymous', '--amount', '50', '--json', '--no-open'], anonymous);
+  assert.equal(code, 1);
+  assert.deepEqual(JSON.parse(stdout), {
+    error: 'An anonymous sponsorship names nobody. Drop the target, or drop --anonymous.',
+    code: 'anonymous_takes_no_target',
+  });
+});
+
+test('the audience, the board and the minimum are the ordinary ones', async () => {
+  // The local board is read exactly as it is for a named sponsorship, and the $2-a-country floor
+  // is refused here rather than a round trip later.
+  const low = await run(['sponsor', '--anonymous', '--audience', 'pt,es', '--amount', '3', '--json', '--no-open'], anonymous);
+  assert.equal(low.code, 1);
+  assert.equal((JSON.parse(low.stdout) as { code: string }).code, 'amount_below_minimum');
+
+  const ok = await run(['sponsor', '--anonymous', '--audience', 'pt,es', '--amount', '20', '--json', '--no-open'], anonymous);
+  assert.equal(ok.code, 0);
+  assert.deepEqual(lastCheckout?.body.audience, ['ES', 'PT']);
+  assert.equal(lastCheckout?.body.target, undefined);
+  assert.equal(lastCheckout?.body.anonymous, true);
+});
+
+test('without --json the report says Anonymous where it would name the sponsor', async () => {
+  const { code, stdout } = await run(['sponsor', '--anonymous', '--amount', '50', '--no-open', '--quiet'], anonymous);
+  assert.equal(code, 0);
+  assert.match(stdout, /Sponsor\s+Anonymous/);
+});
+
+test('--help says what it does, that it takes no target, and what stays the same', async () => {
+  const { stdout } = await run(['--help']);
+  assert.match(stdout, /--anonymous/);
+  assert.match(stdout, /name nobody/);
+  assert.match(stdout, /Takes no\s*\n?\s*target/);
 });
