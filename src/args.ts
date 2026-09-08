@@ -234,7 +234,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   while (i < argv.length) {
     const token = argv[i]!;
     if (token === '--') {
-      out.error = 'Nothing to run. Try `sponsoredtokens --help`.';
+      out.error = 'Nothing to run. Try `stok --help`.';
       return out;
     }
     const taken = takeFlag(argv, i, out, true);
@@ -244,7 +244,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (token.startsWith('-')) {
-      out.error = `Unknown option ${token}. Try \`sponsoredtokens --help\`.`;
+      out.error = `Unknown option ${token}. Try \`stok --help\`.`;
       return out;
     }
     break;
@@ -282,19 +282,20 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 export function helpText(harnessIds: readonly string[], style: Ink = plainInk()): string {
   const command = (text: string): string => style.code(text);
-  const name = style.muted('sponsoredtokens');
+  const name = style.muted('stok');
   return `${banner(VERSION, style)}
   ${style.muted('run your coding agent on tokens somebody else paid for.')}
+  ${style.muted('Also installed as sponsoredtokens.')}
 
-  ${name} ${command('login')}                 sign in and store your API key
-  ${name} ${command('status')}                the pool, your budget, your tier, your model
-  ${name} ${command('logout')}                forget the stored key
-  ${name} ${command('reset')} [harness]       take the pool out of a harness's own config files
+  ${name} ${command('login')}              sign in and store your API key
+  ${name} ${command('status')}             the pool, your budget, your tier, your model
+  ${name} ${command('logout')}             forget the stored key
+  ${name} ${command('reset')} [harness]    take the pool out of a harness's own config files
 
-  ${name} ${command('<harness>')} [args…]     launch a harness against the pool
-  ${name} ${command('run')} <cmd…>            export the variables and run anything
+  ${name} ${command('<harness>')} [args…]  launch a harness against the pool
+  ${name} ${command('run')} <cmd…>         export the variables and run anything
 
-  ${name} ${command('sponsor')} <target>      put money in: a payment link for whoever pays
+  ${name} ${command('sponsor')} <target>   put money in: a payment link for whoever pays
 
 Harnesses: ${harnessIds.map((id) => style.strong(id)).join(', ')}
 
@@ -311,7 +312,7 @@ Options:
   ${command('--help, -h')}        this
   ${command('--version, -V')}     ${VERSION}
 
-sponsor: ${command('sponsoredtokens sponsor <url | @handle>')}
+sponsor: ${command('stok sponsor <url | @handle>')}
   ${command('--amount <n>')}      whole dollars. Default: the amount that takes #1 on your board today
   ${command('--audience <a>')}    ${style.strong('global')} (the default, every board, ${money(MIN_GLOBAL_CENTS)} minimum), or the countries
                     you want to be seen in: ${style.strong('--audience PT,ES')} — those local boards

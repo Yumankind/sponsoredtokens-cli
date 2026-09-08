@@ -94,7 +94,7 @@ export interface AccountStatus {
 export async function fetchStatus(ep: Endpoints, token: string): Promise<AccountStatus> {
   const res = await fetch(`${ep.api}/account/me`, { headers: { authorization: `Bearer ${token}`, 'user-agent': USER_AGENT } });
   if (res.status === 401 || res.status === 403) {
-    throw new ApiError('That key was not accepted. Run `sponsoredtokens login` again.');
+    throw new ApiError('That key was not accepted. Run `stok login` again.');
   }
   const body = (await readJson(res, 'Reading your account')) as AccountStatus & { error?: string };
   if (!res.ok) throw new ApiError(body.error ?? `Reading your account failed (${res.status}).`);

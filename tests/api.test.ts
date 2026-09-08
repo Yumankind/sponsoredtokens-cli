@@ -6,7 +6,7 @@
  * `login` saves an `sk-st-` API key and nothing else — this CLI holds no session and has no way to
  * make one — and `status` then sends that key to `GET /api/account/me` as a Bearer. The worker
  * refused API keys on every account route by design, so the very next command after a successful
- * login answered *"That key was not accepted. Run `sponsoredtokens login` again."*, and running
+ * login answered *"That key was not accepted. Run `stok login` again."*, and running
  * login again produced another key that was refused in exactly the same way.
  *
  * The fix is the worker's (`{ allowApiKey: 'read' }` on that one route, `worker/src/sponsored/
@@ -124,7 +124,7 @@ test('a 401 or a 403 is the one sentence a person can act on', async () => {
       withFetch(async () => json({ error: 'nope', code: 'unauthorized' }, status), () => fetchStatus(EP, KEY)),
       (err: unknown) => {
         assert.ok(err instanceof ApiError);
-        assert.equal(err.message, 'That key was not accepted. Run `sponsoredtokens login` again.');
+        assert.equal(err.message, 'That key was not accepted. Run `stok login` again.');
         return true;
       },
       `${status} should say what to do`,

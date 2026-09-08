@@ -163,7 +163,7 @@ async function login(ep: Endpoints, quiet: boolean): Promise<number> {
       if (result.status === 'pending') continue;
       spinner.stop();
       if (result.status === 'expired') {
-        note('  That login expired. Run `sponsoredtokens login` again.');
+        note('  That login expired. Run `stok login` again.');
         return 1;
       }
       const file = writeConfig({ token: result.token, keyId: result.keyId, savedAt: new Date().toISOString() });
@@ -172,14 +172,14 @@ async function login(ep: Endpoints, quiet: boolean): Promise<number> {
 
       printBoard(boardLines(await board(ep, quiet), style), note);
       note('');
-      note(`  Try:  ${style.code(`sponsoredtokens ${suggestHarness(installed)}`)}`);
+      note(`  Try:  ${style.code(`stok ${suggestHarness(installed)}`)}`);
       return 0;
     }
   } finally {
     // A throw from `pollDevice` must not leave a timer redrawing a line forever.
     spinner.stop();
   }
-  note('  That login expired. Run `sponsoredtokens login` again.');
+  note('  That login expired. Run `stok login` again.');
   return 1;
 }
 
@@ -189,7 +189,7 @@ async function status(ep: Endpoints, quiet: boolean): Promise<number> {
   const style = outInk();
   const key = resolveKey();
   if (!key) {
-    note('Not signed in. Run `sponsoredtokens login`.');
+    note('Not signed in. Run `stok login`.');
     return 1;
   }
 
@@ -469,7 +469,7 @@ async function reset(ep: Endpoints, only: string | null): Promise<number> {
   } else if (envOnly.length > 0) {
     note(`  ${envOnly.join(', ')} keep nothing on disk: run them plainly and they are on their own settings.`);
   }
-  note('  Your stored key is untouched; `sponsoredtokens logout` forgets it.');
+  note('  Your stored key is untouched; `stok logout` forgets it.');
   return 0;
 }
 
@@ -637,7 +637,7 @@ export async function main(argv: string[]): Promise<number> {
   // Everything below needs a key.
   const key = resolveKey();
   if (!key) {
-    note('Not signed in. Run `sponsoredtokens login` first.');
+    note('Not signed in. Run `stok login` first.');
     return 1;
   }
 
@@ -665,7 +665,7 @@ export async function main(argv: string[]): Promise<number> {
   if (parsed.command === 'run') {
     const [command, ...rest] = parsed.rest;
     if (!command) {
-      note('`run` needs a command: sponsoredtokens run <cmd…>');
+      note('`run` needs a command: stok run <cmd…>');
       return 2;
     }
     return launch(planForRun(ctx, command), rest, ep, {
@@ -677,7 +677,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   if (!isHarness(parsed.command)) {
-    note(`Unknown command \`${parsed.command}\`. Try \`sponsoredtokens --help\`.`);
+    note(`Unknown command \`${parsed.command}\`. Try \`stok --help\`.`);
     return 2;
   }
   const plan = planFor(parsed.command, ctx)!;

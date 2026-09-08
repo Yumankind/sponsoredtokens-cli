@@ -4,19 +4,20 @@ Run your coding agent on [sponsoredtokens.com](https://sponsoredtokens.com) — 
 tokens paid for by sponsors. Every task ends with a line naming the company that paid for it.
 
 ```sh
-curl -fsSL https://sponsoredtokens.com/cli/install.sh | bash    # macOS, Linux
+npm i -g sponsoredtokens                                         # anywhere node 20+ runs
+curl -fsSL https://sponsoredtokens.com/cli/install.sh | bash     # macOS, Linux
 irm https://sponsoredtokens.com/cli/install.ps1 | iex            # Windows
-npx sponsoredtokens login                                        # or just use npx
+npx sponsoredtokens login                                        # or nothing installed at all
 ```
 
-Then:
+The command is `stok`. Also installed as `sponsoredtokens`, if you prefer the long name.
 
 ```sh
-sponsoredtokens claude            # Claude Code, on the pool
-sponsoredtokens codex             # Codex CLI
-sponsoredtokens run npm test      # export the variables and run anything
-sponsoredtokens status            # the pool, your budget, your tier, your model
-sponsoredtokens sponsor acme.com  # put money back in: a link for whoever pays
+stok claude            # Claude Code, on the pool
+stok codex             # Codex CLI
+stok run npm test      # export the variables and run anything
+stok status            # the pool, your budget, your tier, your model
+stok sponsor acme.com  # put money back in: a link for whoever pays
 ```
 
 Every command that talks to the pool prints where it stands, three lines, before it gets out of the
@@ -41,7 +42,7 @@ whatever model each task picks. Money that IS money stays money — your weekly 
 `status` shows what you have:
 
 ```
-  sponsored/tokens  0.3.7
+  sponsored/tokens  0.4.0
 
   Pool      67.7M tokens left of 135.9M sponsored · 13 sponsors
   Top       Northwind Labs 20.1M · Ferrite 13.1M · Papertrail Books 9.48M
@@ -67,6 +68,18 @@ whatever model each task picks. Money that IS money stays money — your weekly 
 | `run <cmd…>` | Export every base URL and key, then run any command. |
 | `sponsor <target>` | Put money in. Prints a Stripe Checkout link, and a QR code of it, for whoever pays. No key needed. |
 
+## Both names
+
+`stok` since 0.4.0, and `sponsoredtokens` for as long as anyone types it. They are one program: the
+npm package declares both in `bin`, the shell installer puts a `stok` symlink beside the binary, and
+the Windows installer writes a second copy of the same verified bytes. Nothing has to be uninstalled
+and nothing changes if you keep typing the long one.
+
+Three shorter names were looked at and dropped, because a CLI that shadows something already on
+somebody's PATH is a bug report you cannot fix from here: `st` is the suckless terminal and a
+Homebrew formula, `stk` is a Homebrew formula, and `spt` is the Spotify TUI. `stok` collides with
+nothing we could find.
+
 ## Options
 
 | | |
@@ -83,10 +96,10 @@ after `--`, and never inside a `run` command — that argv is yours.
 ## Sponsoring the pool
 
 ```sh
-sponsoredtokens sponsor acme.com                       # the amount that takes #1 today
-sponsoredtokens sponsor @acme --platform github --amount 250
-sponsoredtokens sponsor acme.com --audience PT,ES      # Portugal and Spain, $2 each
-sponsoredtokens sponsor acme.com --json --no-open      # for an agent
+stok sponsor acme.com                       # the amount that takes #1 today
+stok sponsor @acme --platform github --amount 250
+stok sponsor acme.com --audience PT,ES      # Portugal and Spain, $2 each
+stok sponsor acme.com --json --no-open      # for an agent
 ```
 
 ```
@@ -132,9 +145,9 @@ stored it is sent anyway, so the sponsorship can be attributed to that account l
 `--audience` decides which board the sponsorship is on, and every other number follows from it.
 
 ```sh
-sponsoredtokens sponsor acme.com                      # global: every board, from $2
-sponsoredtokens sponsor acme.com --audience PT,ES     # the local boards of PT and ES, from $2
-sponsoredtokens sponsor acme.com --audience dach,PT   # groups and countries mix
+stok sponsor acme.com                      # global: every board, from $2
+stok sponsor acme.com --audience PT,ES     # the local boards of PT and ES, from $2
+stok sponsor acme.com --audience dach,PT   # groups and countries mix
 ```
 
 ```
@@ -250,6 +263,9 @@ price and both formatters — from `sponsoredtokens-site/src/lib/tank.ts` and `l
 audience — the two minimums and the twelve groups — is the CLI's copy of
 `docs/sponsoredtokens/audience-contract.md`, which is the file to change first.
 
-Release: bump `package.json` **and** `src/version.ts` (a test fails if they disagree), tag
-`cli-v<version>`, push. `.github/workflows/sponsoredtokens-cli.yml` compiles the five binaries with
-Bun, writes `SHA256SUMS`, uploads to the `sponsoredtokens-cli` R2 bucket and publishes to npm.
+Release: bump `package.json` **and** `src/version.ts` (a test fails if they disagree), then
+`npm run release`, which compiles the five binaries with Bun, writes one `SHA256SUMS` per target and
+uploads both to the `sponsoredtokens-cli` R2 bucket; `npm run publish:npm` is the package, separately.
+It is run from a person's own machine by decision, not from a GitHub Action. The R2 layout carries
+one `sponsoredtokens` binary per target and nothing named `stok`: the short name is made by the
+installer on the machine it installs to.

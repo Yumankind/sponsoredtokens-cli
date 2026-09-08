@@ -1,9 +1,10 @@
 {
   "name": "sponsoredtokens",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "Run your coding agent on sponsoredtokens.com — a public pool of AI tokens paid for by sponsors.",
   "type": "module",
   "bin": {
+    "stok": "./dist/cli.js",
     "sponsoredtokens": "./dist/cli.js"
   },
   "files": [
@@ -33,6 +34,11 @@
     "sponsoredtokens"
   ],
   "homepage": "https://sponsoredtokens.com",
+  "author": "Bruno Silva (https://sponsoredtokens.com/about)",
+  "bugs": {
+    "email": "support@yumankind.com",
+    "url": "https://sponsoredtokens.com/docs/faq"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.5.2",

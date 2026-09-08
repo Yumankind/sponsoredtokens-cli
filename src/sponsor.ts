@@ -109,7 +109,7 @@ const isPlatform = (value: string): value is PlatformId => (PLATFORM_IDS as read
  */
 export function parseTarget(raw: string | undefined, platform: string | null): SponsorTarget | SponsorRefusal {
   const target = (raw ?? '').trim();
-  if (!target) return refuse('missing_target', 'sponsor needs a website or a handle: sponsoredtokens sponsor acme.com, or --anonymous');
+  if (!target) return refuse('missing_target', 'sponsor needs a website or a handle: stok sponsor acme.com, or --anonymous');
   if (target.length > 300) return refuse('invalid_target', 'That is too long to be a website or a handle.');
 
   if (platform !== null && !isPlatform(platform)) {
