@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { chooseModel, fetchModelPlan, parseModelPlan, SAFE_MODEL, unlockNote } from '../src/models.ts';
 import { DEFAULT_MODEL } from '../src/harnesses.ts';
@@ -229,7 +229,15 @@ test('a null minReferrals is never read as zero, even without the paidOnly flag'
 
 // ── The three constants that have to be the same tier-0 id ────────────────────────────────────
 
-test('SAFE_MODEL, DEFAULT_MODEL and the site’s EXAMPLE_MODEL_ID are one string', () => {
+// The site's example model exists only in the monorepo; the standalone mirror skips this copy test
+// with a reason, as `tokens.test.ts` and `sponsor.test.ts` do. The drift is caught where releases
+// are cut.
+const SITE_EXAMPLE_MODEL = fileURLToPath(new URL('../../../sponsoredtokens-site/src/lib/example-model.ts', import.meta.url));
+const inMonorepo = {
+  skip: existsSync(SITE_EXAMPLE_MODEL) ? false : 'standalone checkout: the site is not beside this package, so the copy is checked in the monorepo',
+};
+
+test('SAFE_MODEL, DEFAULT_MODEL and the site’s EXAMPLE_MODEL_ID are one string', inMonorepo, () => {
   assert.equal(SAFE_MODEL, DEFAULT_MODEL, 'the offline fallback and the built-in default must agree');
 
   // The site's own constant, read as TEXT: this package does not depend on the site, and a bad path

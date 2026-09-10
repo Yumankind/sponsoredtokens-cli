@@ -89,7 +89,7 @@ test('`poolTokens` follows the hero’s rule, so one pool is not rounded two way
   assert.match(body(source(OURS), 'poolTokens'), /tokens \/ unitOf\(tokens\) < 10 \? 2 : 1/);
 });
 
-test('the footnote names the model, and the model is the one the price is for', () => {
+test('the footnote names the model, and the model is the one the price is for', inMonorepo, () => {
   assert.equal(TOKENS_FOOTNOTE, 'Token figures are at Claude Sonnet 5 prices.');
   // The site's own note names the same model; a rename on one side must not leave the other quoting
   // a price for a model nobody mentioned.
