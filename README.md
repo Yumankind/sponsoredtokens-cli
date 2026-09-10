@@ -292,3 +292,8 @@ uploads both to the `sponsoredtokens-cli` R2 bucket; `npm run publish:npm` is th
 It is run from a person's own machine by decision, not from a GitHub Action. The R2 layout carries
 one `sponsoredtokens` binary per target and nothing named `stok`: the short name is made by the
 installer on the machine it installs to.
+
+
+## Source
+
+Developed in the sponsoredtokens monorepo and mirrored here on every release. Issues and pull requests are welcome on this repository; a fix lands in the monorepo and comes back with the next release.

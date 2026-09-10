@@ -34,6 +34,11 @@
     "sponsoredtokens"
   ],
   "homepage": "https://sponsoredtokens.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yumankind/sponsoredtokens-cli.git"
+  },
+  "bugs": "https://github.com/yumankind/sponsoredtokens-cli/issues",
   "author": "Bruno Silva (https://sponsoredtokens.com/about)",
   "bugs": {
     "email": "support@yumankind.com",

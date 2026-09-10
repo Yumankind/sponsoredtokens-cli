@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   REFERENCE_CENTS_PER_MILLION,
@@ -31,6 +31,18 @@ const source = (path: string): string => readFileSync(fileURLToPath(new URL(path
 const TANK = '../../../sponsoredtokens-site/src/lib/tank.ts';
 const POOL_LINE = '../../../sponsoredtokens-site/src/lib/pool-line.ts';
 const OURS = '../src/tokens.ts';
+
+/**
+ * THE MIRROR TESTS RUN IN THE MONOREPO ONLY. This package is also published as a standalone
+ * repository (github.com/yumankind/sponsoredtokens-cli, a `git subtree split` pushed on each
+ * release), where the site is not beside it and there is nothing to compare against. There the
+ * three copy tests below are skipped with a reason rather than failing on a missing file: the
+ * drift they guard is caught where the two sides both exist, which is where releases are cut.
+ */
+const sibling = (path: string): boolean => existsSync(fileURLToPath(new URL(path, import.meta.url)));
+const inMonorepo = {
+  skip: sibling(TANK) && sibling(POOL_LINE) ? false : 'standalone checkout: the site is not beside this package, so the copy is checked in the monorepo',
+};
 
 /**
  * The text of one `export function name(…)` or `function name(…)`, from its signature to the closing
@@ -52,7 +64,7 @@ function body(text: string, name: string): string {
 
 // ── The copy ──────────────────────────────────────────────────────────────────────────────────
 
-test('the reference price is the site’s, and a drift fails here', () => {
+test('the reference price is the site’s, and a drift fails here', inMonorepo, () => {
   // `sponsoredtokens-site/src/lib/tank.ts` is the authority. Sonnet 5 at POOL prices: $4 per million
   // input, $20 per million output, $24 per million blended.
   const found = /export const REFERENCE_CENTS_PER_MILLION = (\d+);/.exec(source(TANK));
@@ -61,7 +73,7 @@ test('the reference price is the site’s, and a drift fails here', () => {
   assert.equal(REFERENCE_CENTS_PER_MILLION, 2400);
 });
 
-test('`formatTokens` and `centsToTokens` are the site’s, character for character', () => {
+test('`formatTokens` and `centsToTokens` are the site’s, character for character', inMonorepo, () => {
   const tank = source(TANK);
   const ours = source(OURS);
   for (const name of ['formatTokens', 'centsToTokens']) {
@@ -69,7 +81,7 @@ test('`formatTokens` and `centsToTokens` are the site’s, character for charact
   }
 });
 
-test('`poolTokens` follows the hero’s rule, so one pool is not rounded two ways', () => {
+test('`poolTokens` follows the hero’s rule, so one pool is not rounded two ways', inMonorepo, () => {
   // `tokensFigure` in `lib/pool-line.ts`: two decimals below ten of a unit, one above, because the
   // two figures on that line are read against each other. `poolTokens` is the same rule inlined.
   const theirs = body(source(POOL_LINE), 'tokensFigure');

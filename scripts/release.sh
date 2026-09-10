@@ -92,3 +92,8 @@ echo "uploading latest.json"
 npx --yes wrangler r2 object put "sponsoredtokens-cli/latest.json" --file=out/latest.json --remote --content-type=application/json >/dev/null
 
 echo "published $VERSION to R2 — try: curl -fsSL https://sponsoredtokens.com/cli/install.sh | bash"
+
+# The public mirror follows every release (scripts/mirror.sh). NO_MIRROR=1 skips it, for a release
+# cut before the mirror repository exists; a push the remote refuses is otherwise a failed release,
+# after the binaries are already up, which is the order that leaves nothing half-published.
+if [ "${NO_MIRROR:-0}" != 1 ]; then bash scripts/mirror.sh; fi

@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -38,9 +38,19 @@ import { parseSponsorBoard } from '../src/api.ts';
 /** The repository root: `packages/sponsoredtokens-cli/tests` → three levels up. */
 const REPO = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 
+// The two originals exist only in the monorepo. In the standalone mirror (github.com/yumankind/
+// sponsoredtokens-cli) these three tests skip with a reason; the drift is caught where releases
+// are cut, which is the monorepo. See `tests/tokens.test.ts` for the same rule.
+const inMonorepo = {
+  skip:
+    existsSync(join(REPO, 'sponsoredtokens-site', 'src', 'content', 'registry.ts')) && existsSync(join(REPO, 'worker', 'src', 'sponsored', 'platforms.ts'))
+      ? false
+      : 'standalone checkout: the site and the worker are not beside this package, so the copies are checked in the monorepo',
+};
+
 // ── The two mirrors ───────────────────────────────────────────────────────────────────────────
 
-test('TERMS_VERSION matches the site’s, which matches terms.md', () => {
+test('TERMS_VERSION matches the site’s, which matches terms.md', inMonorepo, () => {
   // `registry.ts` since 2026-09-09: the constant moved out of `index.ts` with the build-time
   // pre-render, which imports the registry and nothing else. This file is the only guard on the
   // mirror, so it names the file the constant actually lives in.
@@ -54,7 +64,7 @@ test('TERMS_VERSION matches the site’s, which matches terms.md', () => {
   assert.equal(TERMS_VERSION, /^Version:\s*(.+)$/m.exec(terms)![1]!.trim());
 });
 
-test('PLATFORM_IDS matches the worker’s OFFERED platforms, in the same order', () => {
+test('PLATFORM_IDS matches the worker’s OFFERED platforms, in the same order', inMonorepo, () => {
   // The worker keeps three more in its full table for sponsors already carrying them (Instagram,
   // Threads, LinkedIn — unreadable from a server, so no longer sold); the CLI offers what is sold.
   const source = readFileSync(join(REPO, 'worker', 'src', 'sponsored', 'platforms.ts'), 'utf8');
@@ -64,7 +74,7 @@ test('PLATFORM_IDS matches the worker’s OFFERED platforms, in the same order',
   assert.deepEqual([...PLATFORM_IDS], ids);
 });
 
-test('the default platform is the one a bare @handle has always meant', () => {
+test('the default platform is the one a bare @handle has always meant', inMonorepo, () => {
   const source = readFileSync(join(REPO, 'worker', 'src', 'sponsored', 'platforms.ts'), 'utf8');
   assert.equal(DEFAULT_PLATFORM, /DEFAULT_PLATFORM: PlatformId = '([^']+)'/.exec(source)![1]);
 });
