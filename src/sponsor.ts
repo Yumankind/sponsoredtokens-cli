@@ -30,7 +30,7 @@ import { COUNTRY_GROUPS, GROUP_NAMES, ISO_COUNTRY_COUNT, coversEveryCountry, isC
 /**
  * The version of the terms a sponsorship is recorded against.
  *
- * MIRRORS `sponsoredtokens-site/src/content/index.ts`'s `TERMS_VERSION`, which itself mirrors the
+ * MIRRORS `sponsoredtokens-site/src/content/registry.ts`'s `TERMS_VERSION`, which itself mirrors the
  * `Version:` line of `src/content/terms.md`. `tests/sponsor.test.ts` reads that file and fails if
  * the two disagree.
  */

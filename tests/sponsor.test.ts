@@ -41,9 +41,12 @@ const REPO = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 // ── The two mirrors ───────────────────────────────────────────────────────────────────────────
 
 test('TERMS_VERSION matches the site’s, which matches terms.md', () => {
-  const site = readFileSync(join(REPO, 'sponsoredtokens-site', 'src', 'content', 'index.ts'), 'utf8');
+  // `registry.ts` since 2026-09-09: the constant moved out of `index.ts` with the build-time
+  // pre-render, which imports the registry and nothing else. This file is the only guard on the
+  // mirror, so it names the file the constant actually lives in.
+  const site = readFileSync(join(REPO, 'sponsoredtokens-site', 'src', 'content', 'registry.ts'), 'utf8');
   const declared = /TERMS_VERSION\s*=\s*'([^']+)'/.exec(site);
-  assert.ok(declared, "sponsoredtokens-site/src/content/index.ts should export a TERMS_VERSION string literal");
+  assert.ok(declared, "sponsoredtokens-site/src/content/registry.ts should export a TERMS_VERSION string literal");
   assert.equal(TERMS_VERSION, declared[1], 'the CLI would record the wrong terms version against a real payment');
 
   // And the site's own constant is only as good as the document it names.
