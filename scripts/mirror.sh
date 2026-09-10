@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 PREFIX=packages/sponsoredtokens-cli
-REMOTE="${MIRROR_REMOTE:-git@github.com:yumankind/sponsoredtokens-cli.git}"
+REMOTE="${MIRROR_REMOTE:-https://github.com/Yumankind/sponsoredtokens-cli.git}"
 BRANCH="${MIRROR_BRANCH:-main}"
 if [ -n "$(git status --porcelain -- "$PREFIX")" ]; then
   echo "mirror: $PREFIX has uncommitted changes; commit them first" >&2
